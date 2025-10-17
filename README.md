@@ -1,4 +1,3 @@
-cat > README.md << 'EOF'
 # 🎨 Drawing Shape Recognition
 
 Real-time geometric shape detection and quality assessment using OpenCV and ArUco markers.
@@ -158,4 +157,3 @@ For questions or issues, please open an issue on GitHub or contact the team memb
 ---
 
 Made with ❤️ by Team [Your Team Name]
-EOF
