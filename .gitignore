@@ -1,41 +1,47 @@
-# Prerequisites
-*.d
+# Build directories
+build/
+cmake-build-debug/
+cmake-build-release/
+cmake-build-*/
 
-# Compiled Object files
-*.slo
-*.lo
+# CLion
+.idea/
+.vscode/
+
+# Compiled files
 *.o
-*.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
 *.out
+*.exe
 *.app
+*.dylib
+*.so
+*.a
 
-# debug information files
-*.dwo
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Output files (optional - eğer output'ları commit etmek istemiyorsanız)
+output/videos/*.avi
+output/videos/*.mp4
+output/logs/*.txt
+
+# Backup files
+*~
+*.swp
+*.swo
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# IDE
+*.user
+*.suo
+*.sln.docstates
