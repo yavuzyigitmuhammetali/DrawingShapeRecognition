@@ -371,6 +371,25 @@ int main() {
             std::cout << "  ⚠️  KABUL EDİLEBİLİR (ama daha iyi olabilir)" << std::endl;
         }
 
+        // Create OPTIMAL square pixel matrix
+        double fx = camera_matrix.at<double>(0, 0);
+        double fy = camera_matrix.at<double>(1, 1);
+        double cx = camera_matrix.at<double>(0, 2);
+        double cy = camera_matrix.at<double>(1, 2);
+        double f_avg = (fx + fy) / 2.0;
+
+        cv::Mat optimal_camera_matrix = (cv::Mat_<double>(3, 3) <<
+            f_avg, 0, cx,
+            0, f_avg, cy,
+            0, 0, 1
+        );
+
+        std::cout << "\n📐 OPTIMAL SQUARE PIXEL MATRIX:" << std::endl;
+        std::cout << "   Original fx: " << fx << std::endl;
+        std::cout << "   Original fy: " << fy << std::endl;
+        std::cout << "   Optimal f (average): " << f_avg << std::endl;
+        std::cout << "   → fx = fy = " << f_avg << " (perfect square pixels!)" << std::endl;
+
         // YML dosyasına kaydet
         std::string output_filename = "camera_calibration.yml";
         cv::FileStorage fs(output_filename, cv::FileStorage::WRITE);
@@ -386,6 +405,8 @@ int main() {
         fs << "reprojection_error" << reprojection_error;
         fs << "camera_matrix" << camera_matrix;
         fs << "distortion_coefficients" << dist_coeffs;
+        fs << "optimal_camera_matrix" << optimal_camera_matrix;  // ← YENİ!
+        fs << "pixel_aspect_ratio_correction_applied" << true;   // ← YENİ!
 
         fs.release();
 

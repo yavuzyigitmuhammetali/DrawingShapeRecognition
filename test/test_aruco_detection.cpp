@@ -216,36 +216,52 @@ int main() {
         if (!camera_matrix.empty() && !dist_coeffs.empty()) {
             calibration_loaded = true;
 
-            // MANUAL square pixel matrix creation
-            // getOptimalNewCameraMatrix() doesn't fix aspect ratio, so we do it manually!
             double fx_orig = camera_matrix.at<double>(0, 0);
             double fy_orig = camera_matrix.at<double>(1, 1);
-            double cx = camera_matrix.at<double>(0, 2);
-            double cy = camera_matrix.at<double>(1, 2);
 
-            // Use AVERAGE of fx and fy to create perfect square pixels
-            double f_avg = (fx_orig + fy_orig) / 2.0;
+            // Try to load optimal matrix from YML (if available)
+            cv::Mat optimal_from_file;
+            fs.open(calib_file, cv::FileStorage::READ);
+            if (fs.isOpened()) {
+                fs["optimal_camera_matrix"] >> optimal_from_file;
+                fs.release();
+            }
 
-            // Create new camera matrix with square pixels (fx = fy = average)
-            optimal_camera_matrix = (cv::Mat_<double>(3, 3) <<
-                f_avg, 0, cx,
-                0, f_avg, cy,
-                0, 0, 1
-            );
+            if (!optimal_from_file.empty()) {
+                // Use pre-calculated optimal matrix from calibration
+                optimal_camera_matrix = optimal_from_file;
+                double fx_opt = optimal_camera_matrix.at<double>(0, 0);
+                double fy_opt = optimal_camera_matrix.at<double>(1, 1);
 
-            double fx_opt = optimal_camera_matrix.at<double>(0, 0);
-            double fy_opt = optimal_camera_matrix.at<double>(1, 1);
+                std::cout << "✅ Kamera kalibrasyonu yüklendi: " << calib_file << std::endl;
+                std::cout << "   Lens distorsiyonu düzeltmesi AKTİF!" << std::endl;
+                std::cout << "   Original fx/fy: " << std::fixed << std::setprecision(2)
+                         << fx_orig << "/" << fy_orig << " (ratio: "
+                         << std::setprecision(4) << (fy_orig/fx_orig) << ")" << std::endl;
+                std::cout << "   ✨ Using PRE-CALCULATED optimal matrix from calibration!" << std::endl;
+                std::cout << "   Optimal fx/fy: " << std::setprecision(2) << fx_opt << "/" << fy_opt
+                         << " (ratio: " << std::setprecision(4) << (fy_opt/fx_opt) << ")" << std::endl;
+            } else {
+                // Fallback: Create optimal matrix manually (backward compatibility)
+                double cx = camera_matrix.at<double>(0, 2);
+                double cy = camera_matrix.at<double>(1, 2);
+                double f_avg = (fx_orig + fy_orig) / 2.0;
 
-            std::cout << "✅ Kamera kalibrasyonu yüklendi: " << calib_file << std::endl;
-            std::cout << "   Lens distorsiyonu düzeltmesi AKTİF!" << std::endl;
-            std::cout << "   Original fx/fy: " << std::fixed << std::setprecision(2)
-                     << fx_orig << "/" << fy_orig << " (ratio: "
-                     << std::setprecision(4) << (fy_orig/fx_orig) << ")" << std::endl;
-            std::cout << "   MANUAL Square Pixel Matrix Created!" << std::endl;
-            std::cout << "   New fx/fy: " << std::setprecision(2) << fx_opt << "/" << fy_opt
-                     << " (ratio: " << std::setprecision(4) << (fy_opt/fx_opt) << ")" << std::endl;
-            std::cout << "   ✨ Perfect SQUARE pixels enabled! (fx = fy = "
-                     << std::setprecision(2) << f_avg << ")" << std::endl;
+                optimal_camera_matrix = (cv::Mat_<double>(3, 3) <<
+                    f_avg, 0, cx,
+                    0, f_avg, cy,
+                    0, 0, 1
+                );
+
+                std::cout << "✅ Kamera kalibrasyonu yüklendi: " << calib_file << std::endl;
+                std::cout << "   Lens distorsiyonu düzeltmesi AKTİF!" << std::endl;
+                std::cout << "   Original fx/fy: " << std::fixed << std::setprecision(2)
+                         << fx_orig << "/" << fy_orig << " (ratio: "
+                         << std::setprecision(4) << (fy_orig/fx_orig) << ")" << std::endl;
+                std::cout << "   ⚠️  Optimal matrix not in YML, creating manually..." << std::endl;
+                std::cout << "   MANUAL Square Pixel Matrix: fx = fy = "
+                         << std::setprecision(2) << f_avg << std::endl;
+            }
         } else {
             std::cout << "⚠️  Kalibrasyon dosyası bozuk, kullanılmayacak." << std::endl;
         }
