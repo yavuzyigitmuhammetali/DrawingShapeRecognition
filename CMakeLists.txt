@@ -66,3 +66,7 @@ add_custom_command(TARGET shape_recognition POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E echo "=========================================="
     COMMAND ${CMAKE_COMMAND} -E echo ""
 )
+
+# Test executables
+add_executable(test_aruco_detection test/test_aruco_detection.cpp)
+target_link_libraries(test_aruco_detection ${OpenCV_LIBS})
