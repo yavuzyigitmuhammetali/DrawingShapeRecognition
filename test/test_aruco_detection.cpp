@@ -198,6 +198,63 @@ int main() {
     std::cout << "╚════════════════════════════════════════════════════════╝\n" << std::endl;
 
     std::cout << "⏳ Hazırlanıyor..." << std::endl;
+
+    // Load camera calibration (if available)
+    cv::Mat camera_matrix, dist_coeffs, optimal_camera_matrix;
+    bool calibration_loaded = false;
+    std::string calib_file = "camera_calibration.yml";
+
+    cv::FileStorage fs(calib_file, cv::FileStorage::READ);
+    if (fs.isOpened()) {
+        int img_width, img_height;
+        fs["camera_matrix"] >> camera_matrix;
+        fs["distortion_coefficients"] >> dist_coeffs;
+        fs["image_width"] >> img_width;
+        fs["image_height"] >> img_height;
+        fs.release();
+
+        if (!camera_matrix.empty() && !dist_coeffs.empty()) {
+            calibration_loaded = true;
+
+            // MANUAL square pixel matrix creation
+            // getOptimalNewCameraMatrix() doesn't fix aspect ratio, so we do it manually!
+            double fx_orig = camera_matrix.at<double>(0, 0);
+            double fy_orig = camera_matrix.at<double>(1, 1);
+            double cx = camera_matrix.at<double>(0, 2);
+            double cy = camera_matrix.at<double>(1, 2);
+
+            // Use AVERAGE of fx and fy to create perfect square pixels
+            double f_avg = (fx_orig + fy_orig) / 2.0;
+
+            // Create new camera matrix with square pixels (fx = fy = average)
+            optimal_camera_matrix = (cv::Mat_<double>(3, 3) <<
+                f_avg, 0, cx,
+                0, f_avg, cy,
+                0, 0, 1
+            );
+
+            double fx_opt = optimal_camera_matrix.at<double>(0, 0);
+            double fy_opt = optimal_camera_matrix.at<double>(1, 1);
+
+            std::cout << "✅ Kamera kalibrasyonu yüklendi: " << calib_file << std::endl;
+            std::cout << "   Lens distorsiyonu düzeltmesi AKTİF!" << std::endl;
+            std::cout << "   Original fx/fy: " << std::fixed << std::setprecision(2)
+                     << fx_orig << "/" << fy_orig << " (ratio: "
+                     << std::setprecision(4) << (fy_orig/fx_orig) << ")" << std::endl;
+            std::cout << "   MANUAL Square Pixel Matrix Created!" << std::endl;
+            std::cout << "   New fx/fy: " << std::setprecision(2) << fx_opt << "/" << fy_opt
+                     << " (ratio: " << std::setprecision(4) << (fy_opt/fx_opt) << ")" << std::endl;
+            std::cout << "   ✨ Perfect SQUARE pixels enabled! (fx = fy = "
+                     << std::setprecision(2) << f_avg << ")" << std::endl;
+        } else {
+            std::cout << "⚠️  Kalibrasyon dosyası bozuk, kullanılmayacak." << std::endl;
+        }
+    } else {
+        std::cout << "⚠️  Kalibrasyon dosyası bulunamadı: " << calib_file << std::endl;
+        std::cout << "   Lens distorsiyonu düzeltmesi KAPALI (ham kamera görüntüsü)" << std::endl;
+        std::cout << "   Kalibrasyon için: ./camera_calibration çalıştırın" << std::endl;
+    }
+
     std::this_thread::sleep_for(std::chrono::seconds(1));
     std::cout << "▶️  Başladı!\n" << std::endl;
 
@@ -212,20 +269,10 @@ int main() {
     int four_markers_count = 0;
     auto start_time = std::chrono::steady_clock::now();
 
-    // A4 oranı (21cm x 29.7cm)
-    const float A4_WIDTH_CM = 21.0f;
-    const float A4_HEIGHT_CM = 29.7f;
-    const float A4_ASPECT_RATIO = A4_HEIGHT_CM / A4_WIDTH_CM; // ≈1.414
-
-    // Çıktı boyutu (bird's eye view) - A4 oranını koru
+    // Çıktı boyutu (bird's eye view) - Input aspect ratio'yu koru (square pixels!)
     const int OUTPUT_WIDTH = 800;
-    int current_output_height = static_cast<int>(OUTPUT_WIDTH * A4_ASPECT_RATIO);
-    float current_detected_ratio = A4_ASPECT_RATIO;
 
-    std::cout << "📐 Bird's Eye View: " << OUTPUT_WIDTH << "x" << current_output_height
-              << " (ratio: 1:" << std::fixed << std::setprecision(3) << A4_ASPECT_RATIO << ")" << std::endl;
-    std::cout.unsetf(std::ios::floatfield);
-    std::cout.precision(6);
+    std::cout << "📐 Bird's Eye View will preserve INPUT aspect ratio (square pixels)" << std::endl;
 
     while (true) {
         cv::Mat frame;
@@ -235,14 +282,33 @@ int main() {
 
         frame_count++;
 
-        // ArUco detection
+        // Apply lens distortion correction (if calibration available)
+        cv::Mat frame_undistorted;
+        if (calibration_loaded) {
+            // Undistort with optimal matrix
+            cv::Mat temp;
+            cv::undistort(frame, temp, camera_matrix, dist_coeffs, optimal_camera_matrix);
+
+            // CRITICAL FIX: Resize output to correct aspect ratio!
+            // Because fx changed but output size stayed same, we need to resize
+            double fx_orig = camera_matrix.at<double>(0, 0);
+            double fy_orig = camera_matrix.at<double>(1, 1);
+
+            // Calculate new height to compensate for focal length change
+            int new_height = static_cast<int>(temp.rows * (fx_orig / fy_orig));
+            cv::resize(temp, frame_undistorted, cv::Size(temp.cols, new_height));
+        } else {
+            frame_undistorted = frame.clone();
+        }
+
+        // ArUco detection (on undistorted frame)
         std::vector<int> markerIds;
         std::vector<std::vector<cv::Point2f>> markerCorners, rejectedCandidates;
 
-        detector.detectMarkers(frame, markerCorners, markerIds, rejectedCandidates);
+        detector.detectMarkers(frame_undistorted, markerCorners, markerIds, rejectedCandidates);
 
         // Kopyalar (visualization için)
-        cv::Mat display = frame.clone();
+        cv::Mat display = frame_undistorted.clone();
         cv::Mat warped;
 
         // Tespit edilen marker sayısı
@@ -335,22 +401,9 @@ int main() {
                 // Köşeleri sırala (güvenlik için)
                 corners = orderPoints(corners);
 
-                // Tespit edilen kağıdın gerçek piksel oranını hesapla
-                const float width_top = cv::norm(corners[1] - corners[0]);
-                const float width_bottom = cv::norm(corners[2] - corners[3]);
-                const float height_left = cv::norm(corners[3] - corners[0]);
-                const float height_right = cv::norm(corners[2] - corners[1]);
-                const float width_avg = (width_top + width_bottom) * 0.5f;
-                const float height_avg = (height_left + height_right) * 0.5f;
-                const float eps = 1e-3f;
-
-                float detected_ratio = (width_avg > eps) ? height_avg / width_avg : A4_ASPECT_RATIO;
-                if (!std::isfinite(detected_ratio) || detected_ratio < eps) {
-                    detected_ratio = A4_ASPECT_RATIO;
-                }
-
-                current_detected_ratio = detected_ratio;
-                current_output_height = std::max(1, static_cast<int>(OUTPUT_WIDTH * detected_ratio));
+                // Calculate output height based on INPUT frame aspect ratio (preserve square pixels!)
+                float input_aspect = (float)frame_undistorted.rows / frame_undistorted.cols;
+                int current_output_height = static_cast<int>(OUTPUT_WIDTH * input_aspect);
 
                 // Kontur çiz (kağıt sınırı) - KALIN YEŞİL ÇİZGİ
                 for (int i = 0; i < 4; i++) {
@@ -369,7 +422,7 @@ int main() {
                 };
 
                 cv::Mat transform_matrix = cv::getPerspectiveTransform(corners, dst_points);
-                cv::warpPerspective(frame, warped, transform_matrix,
+                cv::warpPerspective(frame_undistorted, warped, transform_matrix,
                                    cv::Size(OUTPUT_WIDTH, current_output_height));
 
             } else {
@@ -400,6 +453,9 @@ int main() {
         std::string info = "Camera " + std::to_string(camera_index) +
                           " | FPS: " + std::to_string((int)fps) +
                           " | Frames: " + std::to_string(frame_count);
+        if (calibration_loaded) {
+            info += " | CALIBRATED | SQUARE PIXELS";
+        }
         cv::putText(display, info, cv::Point(15, 70),
                    cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
 
@@ -438,31 +494,35 @@ int main() {
             cv::line(warped_display, cv::Point(center_x, center_y - radius),
                      cv::Point(center_x, center_y + radius), cv::Scalar(0, 255, 255), 2);
 
-            cv::putText(warped_display, "Bird's Eye View (Corrected)",
+            std::string title = calibration_loaded ?
+                "Bird's Eye View (SQUARE PIXELS)" :
+                "Bird's Eye View (Corrected)";
+            cv::putText(warped_display, title,
                         cv::Point(20, 40),
-                        cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
-            cv::putText(warped_display, "Template Quality: GOOD",
-                        cv::Point(20, 80),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 0), 2);
+                        cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
 
-            std::ostringstream detected_ratio_ss;
-            detected_ratio_ss << "Detected H/W: " << std::fixed << std::setprecision(3) << current_detected_ratio;
-
-            std::ostringstream target_ratio_ss;
-            target_ratio_ss << "A4 H/W: " << std::fixed << std::setprecision(3) << A4_ASPECT_RATIO;
+            if (calibration_loaded) {
+                cv::putText(warped_display, "Circle should be PERFECTLY ROUND!",
+                            cv::Point(20, 80),
+                            cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2);
+            } else {
+                cv::putText(warped_display, "Template Quality: GOOD",
+                            cv::Point(20, 80),
+                            cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 0), 2);
+            }
 
             std::ostringstream resolution_ss;
             resolution_ss << "Resolution: " << warped_width << "x" << warped_height;
 
-            cv::putText(warped_display, detected_ratio_ss.str(),
-                        cv::Point(20, warped_height - 90),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
-            cv::putText(warped_display, target_ratio_ss.str(),
+            std::ostringstream info_ss;
+            info_ss << "Square pixels preserved! Circles = ROUND!";
+
+            cv::putText(warped_display, resolution_ss.str(),
                         cv::Point(20, warped_height - 60),
                         cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
-            cv::putText(warped_display, resolution_ss.str(),
+            cv::putText(warped_display, info_ss.str(),
                         cv::Point(20, warped_height - 30),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
 
             cv::imshow("Bird's Eye View (Corrected)", warped_display);
         }

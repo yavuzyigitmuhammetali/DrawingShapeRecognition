@@ -70,3 +70,10 @@ add_custom_command(TARGET shape_recognition POST_BUILD
 # Test executables
 add_executable(test_aruco_detection test/test_aruco_detection.cpp)
 target_link_libraries(test_aruco_detection ${OpenCV_LIBS})
+
+add_executable(test_debug_aspect_ratio test/test_debug_aspect_ratio.cpp)
+target_link_libraries(test_debug_aspect_ratio ${OpenCV_LIBS})
+
+# Calibration tool
+add_executable(camera_calibration tools/2_calibrate_camera.cpp)
+target_link_libraries(camera_calibration ${OpenCV_LIBS})
