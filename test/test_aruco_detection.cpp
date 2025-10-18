@@ -5,6 +5,10 @@
 #include <vector>
 #include <thread>        // ← EKLENDİ
 #include <chrono>        // ← EKLENDİ (emin olmak için)
+#include <limits>
+#include <cmath>
+#include <sstream>
+#include <algorithm>
 
 // Kamera bilgisi struct
 struct CameraInfo {
@@ -57,6 +61,7 @@ std::vector<CameraInfo> scanAllCameras(int max_cameras = 10) {
 
     return cameras;
 }
+
 
 // Kullanıcıya kamera seçtir (detaylı menü)
 int selectCameraDetailed() {
@@ -207,9 +212,20 @@ int main() {
     int four_markers_count = 0;
     auto start_time = std::chrono::steady_clock::now();
 
-    // Çıktı boyutu (bird's eye view)
+    // A4 oranı (21cm x 29.7cm)
+    const float A4_WIDTH_CM = 21.0f;
+    const float A4_HEIGHT_CM = 29.7f;
+    const float A4_ASPECT_RATIO = A4_HEIGHT_CM / A4_WIDTH_CM; // ≈1.414
+
+    // Çıktı boyutu (bird's eye view) - A4 oranını koru
     const int OUTPUT_WIDTH = 800;
-    const int OUTPUT_HEIGHT = 1000;
+    int current_output_height = static_cast<int>(OUTPUT_WIDTH * A4_ASPECT_RATIO);
+    float current_detected_ratio = A4_ASPECT_RATIO;
+
+    std::cout << "📐 Bird's Eye View: " << OUTPUT_WIDTH << "x" << current_output_height
+              << " (ratio: 1:" << std::fixed << std::setprecision(3) << A4_ASPECT_RATIO << ")" << std::endl;
+    std::cout.unsetf(std::ios::floatfield);
+    std::cout.precision(6);
 
     while (true) {
         cv::Mat frame;
@@ -261,25 +277,80 @@ int main() {
                 status_color = cv::Scalar(0, 255, 0); // Green
                 status_text += ">>> ALL 4 DETECTED! <<<";
 
-                // Köşe noktalarını bul
+                // Köşe noktalarını bul (marker dış köşeleri)
                 std::vector<cv::Point2f> corners(4);
-                for (size_t i = 0; i < markerIds.size(); i++) {
-                    // Her marker'ın merkezi
-                    cv::Point2f center(0, 0);
-                    for (int j = 0; j < 4; j++) {
+                std::vector<bool> corner_found(4, false);
+
+                std::vector<cv::Point2f> marker_centers(markerIds.size());
+                cv::Point2f board_center(0.f, 0.f);
+                for (size_t i = 0; i < markerIds.size(); ++i) {
+                    cv::Point2f center(0.f, 0.f);
+                    for (int j = 0; j < 4; ++j) {
                         center += markerCorners[i][j];
                     }
                     center *= 0.25f;
+                    marker_centers[i] = center;
+                    board_center += center;
+                }
+                board_center *= 1.0f / static_cast<float>(marker_centers.size());
 
-                    // ID'ye göre köşeye ata
-                    if (markerIds[i] == 0) corners[0] = center; // Top-Left
-                    if (markerIds[i] == 1) corners[1] = center; // Top-Right
-                    if (markerIds[i] == 2) corners[2] = center; // Bottom-Right
-                    if (markerIds[i] == 3) corners[3] = center; // Bottom-Left
+                for (size_t i = 0; i < markerIds.size(); ++i) {
+                    cv::Point2f dir = marker_centers[i] - board_center;
+                    float dir_norm = std::sqrt(dir.dot(dir));
+                    if (dir_norm < 1e-3f) {
+                        dir = cv::Point2f(0.f, -1.f);
+                    } else {
+                        dir *= (1.0f / dir_norm);
+                    }
+
+                    float best_score = -std::numeric_limits<float>::infinity();
+                    cv::Point2f best_corner;
+                    for (int j = 0; j < 4; ++j) {
+                        cv::Point2f vec = markerCorners[i][j] - marker_centers[i];
+                        float score = vec.dot(dir);
+                        if (score > best_score) {
+                            best_score = score;
+                            best_corner = markerCorners[i][j];
+                        }
+                    }
+
+                    int target = -1;
+                    if (markerIds[i] == 0) target = 0;       // Top-Left marker
+                    else if (markerIds[i] == 1) target = 1;  // Top-Right marker
+                    else if (markerIds[i] == 2) target = 2;  // Bottom-Right marker
+                    else if (markerIds[i] == 3) target = 3;  // Bottom-Left marker
+
+                    if (target >= 0) {
+                        corners[target] = best_corner;
+                        corner_found[target] = true;
+                    }
+                }
+
+                if (!corner_found[0] || !corner_found[1] || !corner_found[2] || !corner_found[3]) {
+                    status_color = cv::Scalar(0, 165, 255);
+                    status_text = "Marker corners missing";
+                    continue;
                 }
 
                 // Köşeleri sırala (güvenlik için)
                 corners = orderPoints(corners);
+
+                // Tespit edilen kağıdın gerçek piksel oranını hesapla
+                const float width_top = cv::norm(corners[1] - corners[0]);
+                const float width_bottom = cv::norm(corners[2] - corners[3]);
+                const float height_left = cv::norm(corners[3] - corners[0]);
+                const float height_right = cv::norm(corners[2] - corners[1]);
+                const float width_avg = (width_top + width_bottom) * 0.5f;
+                const float height_avg = (height_left + height_right) * 0.5f;
+                const float eps = 1e-3f;
+
+                float detected_ratio = (width_avg > eps) ? height_avg / width_avg : A4_ASPECT_RATIO;
+                if (!std::isfinite(detected_ratio) || detected_ratio < eps) {
+                    detected_ratio = A4_ASPECT_RATIO;
+                }
+
+                current_detected_ratio = detected_ratio;
+                current_output_height = std::max(1, static_cast<int>(OUTPUT_WIDTH * detected_ratio));
 
                 // Kontur çiz (kağıt sınırı) - KALIN YEŞİL ÇİZGİ
                 for (int i = 0; i < 4; i++) {
@@ -293,13 +364,13 @@ int main() {
                 std::vector<cv::Point2f> dst_points = {
                     cv::Point2f(0, 0),
                     cv::Point2f(OUTPUT_WIDTH - 1, 0),
-                    cv::Point2f(OUTPUT_WIDTH - 1, OUTPUT_HEIGHT - 1),
-                    cv::Point2f(0, OUTPUT_HEIGHT - 1)
+                    cv::Point2f(OUTPUT_WIDTH - 1, current_output_height - 1),
+                    cv::Point2f(0, current_output_height - 1)
                 };
 
                 cv::Mat transform_matrix = cv::getPerspectiveTransform(corners, dst_points);
                 cv::warpPerspective(frame, warped, transform_matrix,
-                                   cv::Size(OUTPUT_WIDTH, OUTPUT_HEIGHT));
+                                   cv::Size(OUTPUT_WIDTH, current_output_height));
 
             } else {
                 status_color = cv::Scalar(0, 165, 255); // Orange
@@ -351,15 +422,49 @@ int main() {
         cv::imshow("ArUco Detection Test - Camera " + std::to_string(camera_index), display);
 
         if (!warped.empty()) {
-            // Bird's eye view'e bilgi ekle
-            cv::putText(warped, "Bird's Eye View (Corrected)",
-                       cv::Point(20, 40),
-                       cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
-            cv::putText(warped, "Template Quality: GOOD",
-                       cv::Point(20, 80),
-                       cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 0), 2);
+            cv::Mat warped_display = warped.clone();
 
-            cv::imshow("Bird's Eye View", warped);
+            int warped_width = warped.cols;
+            int warped_height = warped.rows;
+            int center_x = warped_width / 2;
+            int center_y = warped_height / 2;
+            int radius = std::max(10, std::min(warped_width, warped_height) / 6);
+
+            // Aspect ratio doğrulaması için rehber çizimler
+            cv::circle(warped_display, cv::Point(center_x, center_y), radius,
+                       cv::Scalar(255, 0, 255), 3);
+            cv::line(warped_display, cv::Point(center_x - radius, center_y),
+                     cv::Point(center_x + radius, center_y), cv::Scalar(0, 255, 255), 2);
+            cv::line(warped_display, cv::Point(center_x, center_y - radius),
+                     cv::Point(center_x, center_y + radius), cv::Scalar(0, 255, 255), 2);
+
+            cv::putText(warped_display, "Bird's Eye View (Corrected)",
+                        cv::Point(20, 40),
+                        cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
+            cv::putText(warped_display, "Template Quality: GOOD",
+                        cv::Point(20, 80),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 0), 2);
+
+            std::ostringstream detected_ratio_ss;
+            detected_ratio_ss << "Detected H/W: " << std::fixed << std::setprecision(3) << current_detected_ratio;
+
+            std::ostringstream target_ratio_ss;
+            target_ratio_ss << "A4 H/W: " << std::fixed << std::setprecision(3) << A4_ASPECT_RATIO;
+
+            std::ostringstream resolution_ss;
+            resolution_ss << "Resolution: " << warped_width << "x" << warped_height;
+
+            cv::putText(warped_display, detected_ratio_ss.str(),
+                        cv::Point(20, warped_height - 90),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
+            cv::putText(warped_display, target_ratio_ss.str(),
+                        cv::Point(20, warped_height - 60),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
+            cv::putText(warped_display, resolution_ss.str(),
+                        cv::Point(20, warped_height - 30),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2);
+
+            cv::imshow("Bird's Eye View (Corrected)", warped_display);
         }
 
         // Klavye kontrolü
