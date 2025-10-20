@@ -71,8 +71,13 @@ add_custom_command(TARGET shape_recognition POST_BUILD
 add_executable(test_aruco_detection test/test_aruco_detection.cpp)
 target_link_libraries(test_aruco_detection ${OpenCV_LIBS})
 
-add_executable(test_debug_aspect_ratio test/test_debug_aspect_ratio.cpp)
-target_link_libraries(test_debug_aspect_ratio ${OpenCV_LIBS})
+# Bird's-eye view calibration verification test
+add_executable(test_birdseye_calibration test/test_birdseye_calibration.cpp)
+target_link_libraries(test_birdseye_calibration ${OpenCV_LIBS})
+
+# Interactive calibration adjuster
+add_executable(test_interactive_calibration test/test_interactive_calibration.cpp)
+target_link_libraries(test_interactive_calibration ${OpenCV_LIBS})
 
 # Calibration tool
 add_executable(camera_calibration tools/2_calibrate_camera.cpp)
