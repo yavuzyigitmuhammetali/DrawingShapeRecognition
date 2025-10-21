@@ -358,62 +358,70 @@ public:
                                       cv::Point2f& p1a, cv::Point2f& p1b,
                                       cv::Point2f& p2a, cv::Point2f& p2b) {
 
-        // Fit ellipse to get orientation
-        cv::RotatedRect ellipse = cv::fitEllipse(contour);
+        // Step 1: Find the longest diameter (maximum distance between any two points)
+        float maxDist = 0;
+        cv::Point2f farthestA, farthestB;
 
-        // Primary axis angle
-        angle1 = ellipse.angle * M_PI / 180.0;
-        float angle2 = angle1 + M_PI / 2.0; // Perpendicular
+        for (size_t i = 0; i < contour.size(); i++) {
+            for (size_t j = i + 1; j < contour.size(); j++) {
+                cv::Point2f ptA(contour[i].x, contour[i].y);
+                cv::Point2f ptB(contour[j].x, contour[j].y);
+                float dist = cv::norm(ptA - ptB);
 
-        // Find EXACT contour points on each diameter line
-        auto findContourPointsOnLine = [&contour](cv::Point2f center, float angle)
-            -> std::pair<cv::Point2f, cv::Point2f> {
-
-            cv::Point2f bestPos, bestNeg;
-            float maxDistPos = 0;
-            float maxDistNeg = 0;
-
-            // Direction vector for this diameter
-            cv::Point2f direction(cos(angle), sin(angle));
-
-            for (const auto& pt : contour) {
-                cv::Point2f ptf(pt.x, pt.y);
-                cv::Point2f vec = ptf - center;
-
-                // Project onto diameter line to determine which side
-                float dotProduct = vec.x * direction.x + vec.y * direction.y;
-                float distFromCenter = cv::norm(vec);
-
-                if (dotProduct > 0) {
-                    // Positive side - find furthest point
-                    if (distFromCenter > maxDistPos) {
-                        maxDistPos = distFromCenter;
-                        bestPos = ptf;
-                    }
-                } else if (dotProduct < 0) {
-                    // Negative side - find furthest point
-                    if (distFromCenter > maxDistNeg) {
-                        maxDistNeg = distFromCenter;
-                        bestNeg = ptf;
-                    }
+                if (dist > maxDist) {
+                    maxDist = dist;
+                    farthestA = ptA;
+                    farthestB = ptB;
                 }
             }
+        }
 
-            return {bestPos, bestNeg};
-        };
+        // This is the first (longest) diameter
+        p1a = farthestA;
+        p1b = farthestB;
+        diameter1 = maxDist;
 
-        // Find actual contour points
-        auto [pos1, neg1] = findContourPointsOnLine(center, angle1);
-        auto [pos2, neg2] = findContourPointsOnLine(center, angle2);
+        // Calculate the angle of this diameter
+        cv::Point2f vec1 = p1a - p1b;
+        angle1 = atan2(vec1.y, vec1.x);
 
-        // Use actual contour points as endpoints
-        p1a = pos1;
-        p1b = neg1;
-        p2a = pos2;
-        p2b = neg2;
+        // Step 2: Find the perpendicular diameter (90 degrees to the first)
+        float angle2 = angle1 + M_PI / 2.0;
 
-        // Calculate diameters
-        diameter1 = cv::norm(p1a - p1b);
+        // Direction vector for perpendicular diameter
+        cv::Point2f direction(cos(angle2), sin(angle2));
+
+        // Find the two contour points furthest from center along perpendicular direction
+        cv::Point2f bestPos, bestNeg;
+        float maxDistPos = 0;
+        float maxDistNeg = 0;
+
+        for (const auto& pt : contour) {
+            cv::Point2f ptf(pt.x, pt.y);
+            cv::Point2f vec = ptf - center;
+
+            // Project onto perpendicular diameter direction
+            float dotProduct = vec.x * direction.x + vec.y * direction.y;
+            float distFromCenter = cv::norm(vec);
+
+            if (dotProduct > 0) {
+                // Positive side
+                if (distFromCenter > maxDistPos) {
+                    maxDistPos = distFromCenter;
+                    bestPos = ptf;
+                }
+            } else if (dotProduct < 0) {
+                // Negative side
+                if (distFromCenter > maxDistNeg) {
+                    maxDistNeg = distFromCenter;
+                    bestNeg = ptf;
+                }
+            }
+        }
+
+        // This is the second (perpendicular) diameter
+        p2a = bestPos;
+        p2b = bestNeg;
         diameter2 = cv::norm(p2a - p2b);
     }
 
