@@ -274,38 +274,57 @@ public:
         cv::Mat gray;
         cv::cvtColor(birdseye, gray, cv::COLOR_BGR2GRAY);
 
-        // Apply Gaussian blur to reduce noise
-        cv::GaussianBlur(gray, gray, cv::Size(5, 5), 1.5);
+        // Apply strong Gaussian blur to remove noise but keep circle edge
+        cv::GaussianBlur(gray, gray, cv::Size(9, 9), 2.0);
 
-        // Adaptive threshold for robust detection
-        cv::Mat binary;
-        cv::adaptiveThreshold(gray, binary, 255,
-                            cv::ADAPTIVE_THRESH_GAUSSIAN_C,
-                            cv::THRESH_BINARY_INV, 15, 2);
+        // Use Canny edge detection for precise edge detection
+        cv::Mat edges;
+        cv::Canny(gray, edges, 30, 100, 3);
 
-        // Find contours
+        // Morphological closing to connect broken edges
+        cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
+        cv::morphologyEx(edges, edges, cv::MORPH_CLOSE, kernel);
+
+        // Find contours with full hierarchy to get exact boundaries
         std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+        cv::findContours(edges, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
 
-        // Find the largest circular contour
-        double maxArea = 0;
+        // Find the best circular contour
+        double maxScore = 0;
         int bestIdx = -1;
 
         for (size_t i = 0; i < contours.size(); i++) {
-            double area = cv::contourArea(contours[i]);
-
-            // Filter by area (circle should be reasonably sized)
-            if (area < 1000 || area > birdseye.rows * birdseye.cols * 0.5) {
+            // Need enough points for a good circle
+            if (contours[i].size() < 50) {
                 continue;
             }
 
-            // Check circularity
+            double area = cv::contourArea(contours[i]);
+
+            // Filter by area (circle should be reasonably sized)
+            if (area < 2000 || area > birdseye.rows * birdseye.cols * 0.5) {
+                continue;
+            }
+
+            // Check circularity - perfect circle = 1.0
             double perimeter = cv::arcLength(contours[i], true);
             double circularity = 4 * M_PI * area / (perimeter * perimeter);
 
-            // Perfect circle has circularity = 1.0
-            if (circularity > 0.7 && area > maxArea) {
-                maxArea = area;
+            // Also check if it can be approximated as a circle
+            cv::Point2f testCenter;
+            float testRadius;
+            cv::minEnclosingCircle(contours[i], testCenter, testRadius);
+
+            // Calculate how well the contour fits in the enclosing circle
+            double enclosingArea = M_PI * testRadius * testRadius;
+            double fitScore = area / enclosingArea;
+
+            // Combined score: circularity and fit
+            double score = circularity * fitScore;
+
+            // Best circle should have circularity > 0.8 and good fit
+            if (circularity > 0.75 && fitScore > 0.75 && score > maxScore) {
+                maxScore = score;
                 bestIdx = i;
             }
         }
@@ -314,9 +333,19 @@ public:
             return false;
         }
 
-        // Get circle parameters
+        // Get the exact contour (not approximated)
         contour = contours[bestIdx];
+
+        // Fit circle to the actual contour points for better accuracy
         cv::minEnclosingCircle(contour, center, radius);
+
+        // Adjust radius to match contour better (use average distance)
+        double sumDist = 0;
+        for (const auto& pt : contour) {
+            double dist = cv::norm(cv::Point2f(pt) - center);
+            sumDist += dist;
+        }
+        radius = static_cast<float>(sumDist / contour.size());
 
         return true;
     }
@@ -336,62 +365,56 @@ public:
         angle1 = ellipse.angle * M_PI / 180.0;
         float angle2 = angle1 + M_PI / 2.0; // Perpendicular
 
-        // Major axis
-        float majorAxis = std::max(ellipse.size.width, ellipse.size.height);
+        // Find EXACT contour points on each diameter line
+        auto findContourPointsOnLine = [&contour](cv::Point2f center, float angle)
+            -> std::pair<cv::Point2f, cv::Point2f> {
 
-        // Calculate endpoints for both diameters
-        float length = majorAxis * 1.2; // Extend beyond contour
+            cv::Point2f bestPos, bestNeg;
+            float maxDistPos = 0;
+            float maxDistNeg = 0;
 
-        // Diameter 1 (along major axis orientation)
-        p1a = cv::Point2f(
-            center.x + length * cos(angle1),
-            center.y + length * sin(angle1)
-        );
-        p1b = cv::Point2f(
-            center.x - length * cos(angle1),
-            center.y - length * sin(angle1)
-        );
-
-        // Diameter 2 (perpendicular)
-        p2a = cv::Point2f(
-            center.x + length * cos(angle2),
-            center.y + length * sin(angle2)
-        );
-        p2b = cv::Point2f(
-            center.x - length * cos(angle2),
-            center.y - length * sin(angle2)
-        );
-
-        // Find actual intersections with contour
-        auto findIntersections = [&contour](cv::Point2f center, float angle) -> std::pair<float, float> {
-            float maxDist1 = 0, maxDist2 = 0;
+            // Direction vector for this diameter
+            cv::Point2f direction(cos(angle), sin(angle));
 
             for (const auto& pt : contour) {
-                cv::Point2f vec(pt.x - center.x, pt.y - center.y);
-                float dotProduct = vec.x * cos(angle) + vec.y * sin(angle);
-                float dist = sqrt(vec.x * vec.x + vec.y * vec.y);
+                cv::Point2f ptf(pt.x, pt.y);
+                cv::Point2f vec = ptf - center;
 
-                if (dotProduct > 0 && dist > maxDist1) {
-                    maxDist1 = dist;
-                } else if (dotProduct < 0 && dist > maxDist2) {
-                    maxDist2 = dist;
+                // Project onto diameter line to determine which side
+                float dotProduct = vec.x * direction.x + vec.y * direction.y;
+                float distFromCenter = cv::norm(vec);
+
+                if (dotProduct > 0) {
+                    // Positive side - find furthest point
+                    if (distFromCenter > maxDistPos) {
+                        maxDistPos = distFromCenter;
+                        bestPos = ptf;
+                    }
+                } else if (dotProduct < 0) {
+                    // Negative side - find furthest point
+                    if (distFromCenter > maxDistNeg) {
+                        maxDistNeg = distFromCenter;
+                        bestNeg = ptf;
+                    }
                 }
             }
 
-            return {maxDist1, maxDist2};
+            return {bestPos, bestNeg};
         };
 
-        auto [d1a, d1b] = findIntersections(center, angle1);
-        auto [d2a, d2b] = findIntersections(center, angle2);
+        // Find actual contour points
+        auto [pos1, neg1] = findContourPointsOnLine(center, angle1);
+        auto [pos2, neg2] = findContourPointsOnLine(center, angle2);
 
-        diameter1 = d1a + d1b;
-        diameter2 = d2a + d2b;
+        // Use actual contour points as endpoints
+        p1a = pos1;
+        p1b = neg1;
+        p2a = pos2;
+        p2b = neg2;
 
-        // Update endpoints to actual intersection points
-        p1a = cv::Point2f(center.x + d1a * cos(angle1), center.y + d1a * sin(angle1));
-        p1b = cv::Point2f(center.x - d1b * cos(angle1), center.y - d1b * sin(angle1));
-        p2a = cv::Point2f(center.x + d2a * cos(angle2), center.y + d2a * sin(angle2));
-        p2b = cv::Point2f(center.x - d2b * cos(angle2), center.y - d2b * sin(angle2));
+        // Calculate diameters
+        diameter1 = cv::norm(p1a - p1b);
+        diameter2 = cv::norm(p2a - p2b);
     }
 
     void drawMeasurements(cv::Mat& output,
@@ -402,11 +425,15 @@ public:
                          const cv::Point2f& p1a,
                          const cv::Point2f& p1b,
                          const cv::Point2f& p2a,
-                         const cv::Point2f& p2b) {
+                         const cv::Point2f& p2b,
+                         const std::vector<cv::Point>& contour) {
 
-        // Draw circle
-        cv::circle(output, center, static_cast<int>(radius), cv::Scalar(0, 255, 0), 2);
-        cv::circle(output, center, 5, cv::Scalar(0, 255, 0), -1);
+        // Draw the actual detected contour (green) - this is your drawn circle!
+        cv::drawContours(output, std::vector<std::vector<cv::Point>>{contour},
+                        0, cv::Scalar(0, 255, 0), 2);
+
+        // Draw center point
+        cv::circle(output, center, 3, cv::Scalar(0, 255, 0), -1);
 
         if (showMeasurements) {
             // Draw diameter 1 (red)
@@ -468,10 +495,11 @@ public:
         }
     }
 
-    void processFrame(const cv::Mat& frame, cv::Mat& output) {
+    void processFrame(const cv::Mat& frame, cv::Mat& originalOutput, cv::Mat& birdseyeOutput) {
         if (!calibrationLoaded) {
-            output = frame.clone();
-            cv::putText(output, "ERROR: No calibration loaded!",
+            originalOutput = frame.clone();
+            birdseyeOutput = cv::Mat();
+            cv::putText(originalOutput, "ERROR: No calibration loaded!",
                        cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.7,
                        cv::Scalar(0, 0, 255), 2);
             return;
@@ -486,25 +514,36 @@ public:
         std::vector<std::vector<cv::Point2f>> markerCorners;
 
         if (!detectMarkers(undistorted, markerIds, markerCorners)) {
-            output = undistorted.clone();
-            cv::putText(output, "Searching for ArUco markers...",
+            originalOutput = undistorted.clone();
+            birdseyeOutput = cv::Mat();
+            cv::putText(originalOutput, "Searching for ArUco markers...",
                        cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.7,
                        cv::Scalar(0, 165, 255), 2);
             return;
         }
 
-        // Draw detected markers
-        output = undistorted.clone();
-        cv::aruco::drawDetectedMarkers(output, markerCorners, markerIds);
+        // Draw detected markers on original view
+        originalOutput = undistorted.clone();
+        cv::aruco::drawDetectedMarkers(originalOutput, markerCorners, markerIds);
 
         // Extract paper corners
         std::vector<cv::Point2f> paperCorners;
         if (!extractPaperCorners(markerIds, markerCorners, paperCorners)) {
-            cv::putText(output, "Need all 4 corner markers (IDs: 0,1,2,3)",
+            birdseyeOutput = cv::Mat();
+            cv::putText(originalOutput, "Need all 4 corner markers (IDs: 0,1,2,3)",
                        cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.7,
                        cv::Scalar(0, 165, 255), 2);
             return;
         }
+
+        // Draw paper boundary on original view
+        std::vector<cv::Point> paperCornersInt;
+        for (const auto& pt : paperCorners) {
+            paperCornersInt.push_back(cv::Point(static_cast<int>(pt.x), static_cast<int>(pt.y)));
+        }
+        std::vector<std::vector<cv::Point>> polylines;
+        polylines.push_back(paperCornersInt);
+        cv::polylines(originalOutput, polylines, true, cv::Scalar(0, 255, 0), 2);
 
         // Apply bird's-eye view transformation
         cv::Mat birdseye = applyBirdsEyeView(undistorted, paperCorners);
@@ -515,8 +554,8 @@ public:
         std::vector<cv::Point> contour;
 
         if (!detectCircle(birdseye, center, radius, contour)) {
-            output = birdseye.clone();
-            cv::putText(output, "No circle detected - draw a circle on paper!",
+            birdseyeOutput = birdseye.clone();
+            cv::putText(birdseyeOutput, "No circle detected - draw a circle on paper!",
                        cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.7,
                        cv::Scalar(0, 0, 255), 2);
             return;
@@ -528,9 +567,9 @@ public:
         measurePerpendicularDiameters(contour, center, diameter1, diameter2, angle1,
                                      p1a, p1b, p2a, p2b);
 
-        // Draw measurements
-        output = birdseye.clone();
-        drawMeasurements(output, center, radius, diameter1, diameter2, p1a, p1b, p2a, p2b);
+        // Draw measurements on bird's-eye view
+        birdseyeOutput = birdseye.clone();
+        drawMeasurements(birdseyeOutput, center, radius, diameter1, diameter2, p1a, p1b, p2a, p2b, contour);
     }
 
     void toggleMeasurements() {
@@ -615,7 +654,19 @@ int main(int argc, char** argv) {
     std::cout << "Resolution: " << actualWidth << "x" << actualHeight << "\n";
     std::cout << "Starting test...\n\n";
 
-    cv::Mat frame, output;
+    // Maximum window sizes to fit on screen (adjust based on your screen)
+    const int MAX_WINDOW_WIDTH = 1200;
+    const int MAX_WINDOW_HEIGHT = 900;
+
+    // Create named windows
+    cv::namedWindow("Camera View", cv::WINDOW_NORMAL);
+    cv::namedWindow("Bird's Eye View", cv::WINDOW_NORMAL);
+
+    // Position windows side by side
+    cv::moveWindow("Camera View", 50, 50);
+    cv::moveWindow("Bird's Eye View", 700, 50);
+
+    cv::Mat frame, originalOutput, birdseyeOutput;
     int frameCount = 0;
 
     while (true) {
@@ -625,9 +676,34 @@ int main(int argc, char** argv) {
             break;
         }
 
-        tester.processFrame(frame, output);
+        tester.processFrame(frame, originalOutput, birdseyeOutput);
 
-        cv::imshow("Calibration Test", output);
+        // Resize windows to fit on screen if needed
+        if (!originalOutput.empty()) {
+            cv::Mat displayOriginal = originalOutput;
+            if (originalOutput.cols > MAX_WINDOW_WIDTH || originalOutput.rows > MAX_WINDOW_HEIGHT) {
+                double scale = std::min(
+                    static_cast<double>(MAX_WINDOW_WIDTH) / originalOutput.cols,
+                    static_cast<double>(MAX_WINDOW_HEIGHT) / originalOutput.rows
+                );
+                cv::resize(originalOutput, displayOriginal,
+                          cv::Size(), scale, scale, cv::INTER_LINEAR);
+            }
+            cv::imshow("Camera View", displayOriginal);
+        }
+
+        if (!birdseyeOutput.empty()) {
+            cv::Mat displayBirdseye = birdseyeOutput;
+            if (birdseyeOutput.cols > MAX_WINDOW_WIDTH || birdseyeOutput.rows > MAX_WINDOW_HEIGHT) {
+                double scale = std::min(
+                    static_cast<double>(MAX_WINDOW_WIDTH) / birdseyeOutput.cols,
+                    static_cast<double>(MAX_WINDOW_HEIGHT) / birdseyeOutput.rows
+                );
+                cv::resize(birdseyeOutput, displayBirdseye,
+                          cv::Size(), scale, scale, cv::INTER_LINEAR);
+            }
+            cv::imshow("Bird's Eye View", displayBirdseye);
+        }
 
         int key = cv::waitKey(1);
 
@@ -637,9 +713,17 @@ int main(int argc, char** argv) {
         } else if (key == ' ') { // SPACE
             tester.toggleMeasurements();
         } else if (key == 's' || key == 'S') { // Save
-            std::string filename = "calibration_test_" + std::to_string(frameCount++) + ".jpg";
-            cv::imwrite(filename, output);
-            std::cout << "Saved: " << filename << "\n";
+            if (!birdseyeOutput.empty()) {
+                std::string filename = "calibration_test_" + std::to_string(frameCount) + ".jpg";
+                cv::imwrite(filename, birdseyeOutput);
+                std::cout << "Saved bird's-eye view: " << filename << "\n";
+            }
+            if (!originalOutput.empty()) {
+                std::string filename = "calibration_test_original_" + std::to_string(frameCount) + ".jpg";
+                cv::imwrite(filename, originalOutput);
+                std::cout << "Saved camera view: " << filename << "\n";
+            }
+            frameCount++;
         }
     }
 
