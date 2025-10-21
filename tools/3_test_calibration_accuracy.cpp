@@ -381,39 +381,45 @@ public:
         p1b = farthestB;
         diameter1 = maxDist;
 
+        // Calculate the midpoint of the first diameter - THIS IS THE INTERSECTION POINT!
+        cv::Point2f intersectionPoint = (p1a + p1b) / 2.0f;
+
         // Calculate the angle of this diameter
         cv::Point2f vec1 = p1a - p1b;
         angle1 = atan2(vec1.y, vec1.x);
 
         // Step 2: Find the perpendicular diameter (90 degrees to the first)
+        // This diameter MUST pass through the intersection point
         float angle2 = angle1 + M_PI / 2.0;
 
         // Direction vector for perpendicular diameter
         cv::Point2f direction(cos(angle2), sin(angle2));
 
-        // Find the two contour points furthest from center along perpendicular direction
+        // Find the two contour points furthest from the intersection point
+        // along the perpendicular direction
         cv::Point2f bestPos, bestNeg;
         float maxDistPos = 0;
         float maxDistNeg = 0;
 
         for (const auto& pt : contour) {
             cv::Point2f ptf(pt.x, pt.y);
-            cv::Point2f vec = ptf - center;
+            cv::Point2f vec = ptf - intersectionPoint;  // FROM INTERSECTION POINT!
 
             // Project onto perpendicular diameter direction
+            // dotProduct is the signed distance along the perpendicular direction
             float dotProduct = vec.x * direction.x + vec.y * direction.y;
-            float distFromCenter = cv::norm(vec);
 
             if (dotProduct > 0) {
-                // Positive side
-                if (distFromCenter > maxDistPos) {
-                    maxDistPos = distFromCenter;
+                // Positive side - find the farthest point along perpendicular direction
+                if (dotProduct > maxDistPos) {
+                    maxDistPos = dotProduct;
                     bestPos = ptf;
                 }
             } else if (dotProduct < 0) {
-                // Negative side
-                if (distFromCenter > maxDistNeg) {
-                    maxDistNeg = distFromCenter;
+                // Negative side - find the farthest point along perpendicular direction
+                float absProjection = std::abs(dotProduct);
+                if (absProjection > maxDistNeg) {
+                    maxDistNeg = absProjection;
                     bestNeg = ptf;
                 }
             }
@@ -423,6 +429,9 @@ public:
         p2a = bestPos;
         p2b = bestNeg;
         diameter2 = cv::norm(p2a - p2b);
+
+        // Now both diameters intersect at the same point (midpoint of diameter1)
+        // and they are perpendicular to each other!
     }
 
     void drawMeasurements(cv::Mat& output,
@@ -440,10 +449,10 @@ public:
         cv::drawContours(output, std::vector<std::vector<cv::Point>>{contour},
                         0, cv::Scalar(0, 255, 0), 2);
 
-        // Draw center point
-        cv::circle(output, center, 3, cv::Scalar(0, 255, 0), -1);
-
         if (showMeasurements) {
+            // Calculate intersection point (midpoint of diameter 1)
+            cv::Point2f intersectionPoint = (p1a + p1b) / 2.0f;
+
             // Draw diameter 1 (red)
             cv::line(output, p1a, p1b, cv::Scalar(0, 0, 255), 2);
             cv::circle(output, p1a, 5, cv::Scalar(0, 0, 255), -1);
@@ -453,6 +462,10 @@ public:
             cv::line(output, p2a, p2b, cv::Scalar(255, 0, 0), 2);
             cv::circle(output, p2a, 5, cv::Scalar(255, 0, 0), -1);
             cv::circle(output, p2b, 5, cv::Scalar(255, 0, 0), -1);
+
+            // Draw intersection point (yellow) - where the two diameters meet at 90 degrees!
+            cv::circle(output, intersectionPoint, 6, cv::Scalar(0, 255, 255), -1);
+            cv::circle(output, intersectionPoint, 8, cv::Scalar(0, 255, 255), 2);
 
             // Calculate ratio
             float ratio = diameter1 / diameter2;
