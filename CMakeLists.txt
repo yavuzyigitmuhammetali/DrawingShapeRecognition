@@ -54,31 +54,24 @@ add_executable(shape_recognition ${SOURCES})
 # Link libraries
 target_link_libraries(shape_recognition ${OpenCV_LIBS})
 
+# Calibration tools
+add_executable(calibrate_camera_charuco tools/2_calibrate_camera_charuco.cpp)
+target_link_libraries(calibrate_camera_charuco ${OpenCV_LIBS})
+
+add_executable(test_calibration_accuracy tools/3_test_calibration_accuracy.cpp)
+target_link_libraries(test_calibration_accuracy ${OpenCV_LIBS})
+
 # Install targets
-install(TARGETS shape_recognition DESTINATION bin)
+install(TARGETS shape_recognition calibrate_camera_charuco test_calibration_accuracy DESTINATION bin)
 
 # Print post-build message
 add_custom_command(TARGET shape_recognition POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E echo ""
     COMMAND ${CMAKE_COMMAND} -E echo "=========================================="
     COMMAND ${CMAKE_COMMAND} -E echo "  Build completed successfully!"
-    COMMAND ${CMAKE_COMMAND} -E echo "  Executable: $<TARGET_FILE:shape_recognition>"
+    COMMAND ${CMAKE_COMMAND} -E echo "  Main executable: $<TARGET_FILE:shape_recognition>"
+    COMMAND ${CMAKE_COMMAND} -E echo "  Calibration tool: $<TARGET_FILE:calibrate_camera_charuco>"
+    COMMAND ${CMAKE_COMMAND} -E echo "  Test tool: $<TARGET_FILE:test_calibration_accuracy>"
     COMMAND ${CMAKE_COMMAND} -E echo "=========================================="
     COMMAND ${CMAKE_COMMAND} -E echo ""
 )
-
-# Test executables
-add_executable(test_aruco_detection test/test_aruco_detection.cpp)
-target_link_libraries(test_aruco_detection ${OpenCV_LIBS})
-
-# Bird's-eye view calibration verification test
-add_executable(test_birdseye_calibration test/test_birdseye_calibration.cpp)
-target_link_libraries(test_birdseye_calibration ${OpenCV_LIBS})
-
-# Interactive calibration adjuster
-add_executable(test_interactive_calibration test/test_interactive_calibration.cpp)
-target_link_libraries(test_interactive_calibration ${OpenCV_LIBS})
-
-# Calibration tool
-add_executable(camera_calibration tools/2_calibrate_camera.cpp)
-target_link_libraries(camera_calibration ${OpenCV_LIBS})
