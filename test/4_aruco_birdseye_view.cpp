@@ -5,20 +5,15 @@
  * WITHOUT requiring camera calibration. It works by detecting the 4 corner
  * markers and applying perspective transformation.
  *
- * If calibration file is provided, it will also correct lens distortion for
- * better accuracy. But it works fine without calibration too!
- *
  * Usage:
- *   ./aruco_birdseye_view [camera_id] [calibration_file.yml]
+ *   ./aruco_birdseye_view [camera_id]
  *
  * Arguments:
  *   camera_id - Camera index (0, 1, 2, ...) - optional, will prompt if not provided
- *   calibration_file - Optional calibration file path for lens distortion correction
  *
  * Controls:
  *   SPACE - Toggle measurement display
  *   's'   - Save current frame
- *   'c'   - Toggle calibration on/off (if loaded)
  *   ESC   - Exit
  */
 
@@ -121,17 +116,10 @@ class BirdsEyeViewer {
 private:
     cv::aruco::Dictionary dictionaryData;
     cv::Ptr<cv::aruco::Dictionary> dictionary;
-
-    // Optional calibration data
-    cv::Mat cameraMatrix;
-    cv::Mat distCoeffs;
-    bool calibrationLoaded;
-    bool useCalibration;  // Can be toggled at runtime
-
     bool showMeasurements;
 
 public:
-    BirdsEyeViewer() : calibrationLoaded(false), useCalibration(true), showMeasurements(true) {
+    BirdsEyeViewer() : showMeasurements(true) {
         dictionaryData = cv::aruco::getPredefinedDictionary(ARUCO_DICT);
         dictionary = cv::makePtr<cv::aruco::Dictionary>(dictionaryData);
 
@@ -145,37 +133,6 @@ public:
                   << MARKERS_RECT_HEIGHT_CM << " cm\n";
         std::cout << "  Marker IDs: 0 (TL), 1 (TR), 2 (BR), 3 (BL)\n";
         std::cout << "========================================\n\n";
-    }
-
-    bool tryLoadCalibration(const std::string& filename) {
-        cv::FileStorage fs(filename, cv::FileStorage::READ);
-
-        if (!fs.isOpened()) {
-            std::cout << "Note: No calibration file found at: " << filename << "\n";
-            std::cout << "      Running WITHOUT lens distortion correction.\n";
-            std::cout << "      This is fine! Perspective correction will still work.\n\n";
-            return false;
-        }
-
-        fs["camera_matrix"] >> cameraMatrix;
-        fs["distortion_coefficients"] >> distCoeffs;
-        fs.release();
-
-        if (cameraMatrix.empty() || distCoeffs.empty()) {
-            std::cout << "Note: Invalid calibration data in file.\n";
-            std::cout << "      Running WITHOUT lens distortion correction.\n\n";
-            return false;
-        }
-
-        calibrationLoaded = true;
-
-        std::cout << "Calibration loaded successfully!\n";
-        std::cout << "  File: " << filename << "\n";
-        std::cout << "  Lens distortion correction: ENABLED\n";
-        std::cout << "  Press 'c' to toggle calibration on/off\n";
-        std::cout << "========================================\n\n";
-
-        return true;
     }
 
     bool detectMarkers(const cv::Mat& frame,
@@ -507,39 +464,23 @@ public:
     }
 
     void processFrame(const cv::Mat& frame, cv::Mat& originalOutput, cv::Mat& birdseyeOutput) {
-        cv::Mat workingFrame = frame.clone();
-
-        // Apply lens distortion correction if calibration is loaded and enabled
-        if (calibrationLoaded && useCalibration) {
-            cv::undistort(frame, workingFrame, cameraMatrix, distCoeffs);
-        }
-
         // Detect ArUco markers
         std::vector<int> markerIds;
         std::vector<std::vector<cv::Point2f>> markerCorners;
 
-        if (!detectMarkers(workingFrame, markerIds, markerCorners)) {
-            originalOutput = workingFrame.clone();
+        if (!detectMarkers(frame, markerIds, markerCorners)) {
+            originalOutput = frame.clone();
             birdseyeOutput = cv::Mat();
 
             std::string msg = "Searching for ArUco markers (need IDs: 0,1,2,3)...";
             cv::putText(originalOutput, msg,
                        cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.7,
                        cv::Scalar(0, 165, 255), 2);
-
-            // Show calibration status
-            std::string calStatus = calibrationLoaded ?
-                (useCalibration ? "Calibration: ON" : "Calibration: OFF") :
-                "Calibration: NONE";
-            cv::putText(originalOutput, calStatus,
-                       cv::Point(10, 60), cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                       cv::Scalar(255, 255, 255), 1);
-
             return;
         }
 
         // Draw detected markers
-        originalOutput = workingFrame.clone();
+        originalOutput = frame.clone();
         cv::aruco::drawDetectedMarkers(originalOutput, markerCorners, markerIds);
 
         // Extract paper corners
@@ -560,16 +501,8 @@ public:
         cv::polylines(originalOutput, std::vector<std::vector<cv::Point>>{paperCornersInt},
                      true, cv::Scalar(0, 255, 0), 2);
 
-        // Show calibration status on original view
-        std::string calStatus = calibrationLoaded ?
-            (useCalibration ? "Lens Correction: ON" : "Lens Correction: OFF") :
-            "Lens Correction: NONE";
-        cv::putText(originalOutput, calStatus,
-                   cv::Point(10, originalOutput.rows - 20), cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                   cv::Scalar(255, 255, 0), 2);
-
         // Apply bird's-eye view transformation
-        cv::Mat birdseye = applyBirdsEyeView(workingFrame, paperCorners);
+        cv::Mat birdseye = applyBirdsEyeView(frame, paperCorners);
 
         // Try to detect circle
         cv::Point2f center;
@@ -599,16 +532,6 @@ public:
     void toggleMeasurements() {
         showMeasurements = !showMeasurements;
     }
-
-    void toggleCalibration() {
-        if (calibrationLoaded) {
-            useCalibration = !useCalibration;
-            std::cout << "Lens distortion correction: "
-                     << (useCalibration ? "ON" : "OFF") << "\n";
-        } else {
-            std::cout << "No calibration loaded - cannot toggle.\n";
-        }
-    }
 };
 
 void displayInstructions() {
@@ -620,31 +543,17 @@ void displayInstructions() {
 
     std::cout << "Controls:\n";
     std::cout << "  SPACE - Toggle measurement display\n";
-    std::cout << "  'c'   - Toggle calibration on/off (if loaded)\n";
     std::cout << "  's'   - Save current frame\n";
     std::cout << "  ESC   - Exit\n\n";
-
-    std::cout << "Note:\n";
-    std::cout << "  - This tool works WITHOUT camera calibration!\n";
-    std::cout << "  - If you have a calibration file, it will improve accuracy\n";
-    std::cout << "  - But ArUco markers alone provide good perspective correction\n\n";
 }
 
 int main(int argc, char** argv) {
     int cameraId = -1;
-    std::string calibrationFile = "camera_calibration.yml";
 
     // Parse command line arguments
     if (argc > 1) {
         std::stringstream ss(argv[1]);
-        if (!(ss >> cameraId)) {
-            calibrationFile = argv[1];
-            cameraId = -1;
-        }
-    }
-
-    if (argc > 2) {
-        calibrationFile = argv[2];
+        ss >> cameraId;
     }
 
     std::cout << "\n========================================\n";
@@ -662,10 +571,6 @@ int main(int argc, char** argv) {
     }
 
     BirdsEyeViewer viewer;
-
-    // Try to load calibration (optional)
-    viewer.tryLoadCalibration(calibrationFile);
-
     displayInstructions();
 
     // Open camera
@@ -721,8 +626,6 @@ int main(int argc, char** argv) {
             break;
         } else if (key == ' ') { // SPACE
             viewer.toggleMeasurements();
-        } else if (key == 'c' || key == 'C') { // Toggle calibration
-            viewer.toggleCalibration();
         } else if (key == 's' || key == 'S') { // Save
             if (!birdseyeOutput.empty()) {
                 std::string filename = "birdseye_" + std::to_string(frameCount) + ".jpg";
