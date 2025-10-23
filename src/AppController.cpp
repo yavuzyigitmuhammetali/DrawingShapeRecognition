@@ -131,6 +131,26 @@ void AppController::processFrame(const cv::Mat& frame,
                  ? frame.clone()
                  : perspectiveResult.annotatedFrame.clone();
 
+    if (!cameraView.empty() && !perspectiveResult.originalMask.empty()) {
+        if (cameraView.channels() == 1) {
+            cv::cvtColor(cameraView, cameraView, cv::COLOR_GRAY2BGR);
+        }
+
+        cv::Mat outsideMask;
+        cv::bitwise_not(perspectiveResult.originalMask, outsideMask);
+        cameraView.setTo(cv::Scalar(25, 25, 25), outsideMask);
+
+        if (!perspectiveResult.paperOutlineImage.empty()) {
+            std::vector<cv::Point> polygon;
+            polygon.reserve(perspectiveResult.paperOutlineImage.size());
+            for (const auto& pt : perspectiveResult.paperOutlineImage) {
+                polygon.emplace_back(cvRound(pt.x), cvRound(pt.y));
+            }
+            cv::polylines(cameraView, std::vector<std::vector<cv::Point>>{polygon},
+                          true, cv::Scalar(0, 255, 0), 2);
+        }
+    }
+
     hasBirdseye = perspectiveResult.success;
     if (!hasBirdseye) {
         cv::putText(cameraView,
@@ -153,7 +173,13 @@ void AppController::processFrame(const cv::Mat& frame,
         cv::cvtColor(birdseyeView, birdseyeView, cv::COLOR_GRAY2BGR);
     }
 
-    auto candidates = segmenter_.segment(perspectiveResult.warped);
+    if (!perspectiveResult.warpedMask.empty()) {
+        cv::Mat outsideMask;
+        cv::bitwise_not(perspectiveResult.warpedMask, outsideMask);
+        birdseyeView.setTo(cv::Scalar(30, 30, 30), outsideMask);
+    }
+
+    auto candidates = segmenter_.segment(perspectiveResult.warped, perspectiveResult.warpedMask);
     std::vector<ShapeClassifier::Classification> classifications;
     std::vector<ShapeQualityAnalyzer::QualityScore> qualities;
 

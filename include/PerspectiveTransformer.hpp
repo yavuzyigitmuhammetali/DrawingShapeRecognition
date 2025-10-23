@@ -26,8 +26,11 @@ public:
     struct Result {
         bool success = false;
         cv::Mat warped;
+        cv::Mat warpedMask;
+        cv::Mat originalMask;
         cv::Mat annotatedFrame;
         std::vector<cv::Point2f> markerCenters;
+        std::vector<cv::Point2f> paperOutlineImage;
     };
 
     explicit PerspectiveTransformer(const Config& config = Config());
@@ -47,6 +50,16 @@ private:
 
     void drawPaperOverlay(cv::Mat& image,
                           const std::vector<cv::Point2f>& paperCorners) const;
+    cv::Mat buildHomography(const std::vector<cv::Point2f>& paperCorners,
+                            cv::Size& outputSize,
+                            std::vector<cv::Point2f>& dstPoints) const;
+    void generateMasks(const cv::Mat& frame,
+                       const cv::Mat& homography,
+                       const std::vector<cv::Point2f>& dstPoints,
+                       const cv::Size& outputSize,
+                       std::vector<cv::Point2f>& paperOutlineImage,
+                       cv::Mat& originalMask,
+                       cv::Mat& warpedMask) const;
 
     Config config_;
     cv::Ptr<cv::aruco::Dictionary> dictionary_;
