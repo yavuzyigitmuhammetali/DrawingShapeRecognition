@@ -41,11 +41,13 @@ include_directories(
 # Source files (will be populated as we create classes)
 set(SOURCES
     src/main.cpp
-    # src/VideoCapture.cpp
-    # src/PerspectiveTransformer.cpp
-    # src/ShapeDetector.cpp
-    # src/ShapeClassifier.cpp
-    # src/OutputManager.cpp
+    src/AppController.cpp
+    src/VideoSource.cpp
+    src/PerspectiveTransformer.cpp
+    src/ShapeSegmenter.cpp
+    src/ShapeClassifier.cpp
+    src/ShapeQualityAnalyzer.cpp
+    src/OutputManager.cpp
 )
 
 # Main executable
@@ -59,14 +61,3 @@ target_link_libraries(aruco_birdseye_view ${OpenCV_LIBS})
 
 # Install targets
 install(TARGETS shape_recognition aruco_birdseye_view DESTINATION bin)
-
-# Print post-build message
-add_custom_command(TARGET shape_recognition POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E echo ""
-    COMMAND ${CMAKE_COMMAND} -E echo "=========================================="
-    COMMAND ${CMAKE_COMMAND} -E echo "  Build completed successfully!"
-    COMMAND ${CMAKE_COMMAND} -E echo "  Main executable: $<TARGET_FILE:shape_recognition>"
-    COMMAND ${CMAKE_COMMAND} -E echo "  Bird's Eye View: $<TARGET_FILE:aruco_birdseye_view>"
-    COMMAND ${CMAKE_COMMAND} -E echo "=========================================="
-    COMMAND ${CMAKE_COMMAND} -E echo ""
-)
