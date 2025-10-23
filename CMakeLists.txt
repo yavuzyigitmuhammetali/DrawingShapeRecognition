@@ -61,8 +61,11 @@ target_link_libraries(calibrate_camera_charuco ${OpenCV_LIBS})
 add_executable(test_calibration_accuracy tools/3_test_calibration_accuracy.cpp)
 target_link_libraries(test_calibration_accuracy ${OpenCV_LIBS})
 
+add_executable(aruco_birdseye_view tools/4_aruco_birdseye_view.cpp)
+target_link_libraries(aruco_birdseye_view ${OpenCV_LIBS})
+
 # Install targets
-install(TARGETS shape_recognition calibrate_camera_charuco test_calibration_accuracy DESTINATION bin)
+install(TARGETS shape_recognition calibrate_camera_charuco test_calibration_accuracy aruco_birdseye_view DESTINATION bin)
 
 # Print post-build message
 add_custom_command(TARGET shape_recognition POST_BUILD
@@ -72,6 +75,7 @@ add_custom_command(TARGET shape_recognition POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E echo "  Main executable: $<TARGET_FILE:shape_recognition>"
     COMMAND ${CMAKE_COMMAND} -E echo "  Calibration tool: $<TARGET_FILE:calibrate_camera_charuco>"
     COMMAND ${CMAKE_COMMAND} -E echo "  Test tool: $<TARGET_FILE:test_calibration_accuracy>"
+    COMMAND ${CMAKE_COMMAND} -E echo "  Bird's Eye View: $<TARGET_FILE:aruco_birdseye_view>"
     COMMAND ${CMAKE_COMMAND} -E echo "=========================================="
     COMMAND ${CMAKE_COMMAND} -E echo ""
 )
