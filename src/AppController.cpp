@@ -15,6 +15,7 @@ int AppController::run(int argc, char** argv) {
     }
 
     processStream();
+    outputManager_.forceStopRecording();
     outputManager_.flush();
     return 0;
 }
@@ -72,6 +73,7 @@ bool AppController::initialize(int argc, char** argv) {
     }
 
     running_ = true;
+    std::cout << "✅ Sistem hazır. ArUco marker tespiti bekleniyor..." << std::endl;
     return true;
 }
 
@@ -160,12 +162,15 @@ void AppController::processFrame(const cv::Mat& frame,
                     0.7,
                     cv::Scalar(0, 165, 255),
                     2);
+        // No ArUco detected - let OutputManager handle recording state
+        outputManager_.processFrame(cameraView, false);
         return;
     }
 
     birdseyeView = perspectiveResult.warped.clone();
     if (birdseyeView.empty()) {
         hasBirdseye = false;
+        outputManager_.processFrame(cameraView, false);
         return;
     }
 
@@ -197,6 +202,9 @@ void AppController::processFrame(const cv::Mat& frame,
     }
 
     annotateDetections(birdseyeView, candidates, classifications, qualities);
+
+    // ArUco detected successfully - send birdseye view to OutputManager
+    outputManager_.processFrame(birdseyeView, true);
 }
 
 void AppController::annotateDetections(
