@@ -2,6 +2,7 @@
 
 #include <opencv2/opencv.hpp>
 #include <algorithm>
+#include <cmath>
 #include <numeric>
 
 namespace {
@@ -139,6 +140,9 @@ ShapeQualityAnalyzer::QualityScore ShapeQualityAnalyzer::evaluate(
 
     score = clamp01(score);
     quality.score = score * 100.0;
+
+    // Round to nearest 10 (ceiling)
+    quality.score = std::ceil(quality.score / 10.0) * 10.0;
 
     if (quality.score >= 90.0) {
         quality.grade = "Excellent";
