@@ -2,6 +2,8 @@
 
 #include <opencv2/opencv.hpp>
 
+using Params = ShapeClassifier::Parameters;
+
 ShapeClassifier::Classification ShapeClassifier::classify(const ShapeSegmenter::Candidate& candidate) const {
     Classification result;
 
@@ -15,14 +17,14 @@ ShapeClassifier::Classification ShapeClassifier::classify(const ShapeSegmenter::
     }
 
     std::vector<cv::Point> approx;
-    cv::approxPolyDP(candidate.contour, approx, 0.02 * perimeter, true);
+    cv::approxPolyDP(candidate.contour, approx, Params::POLYGON_EPSILON * perimeter, true);
     const double area = cv::contourArea(candidate.contour);
     const int vertexCount = static_cast<int>(approx.size());
 
     if (vertexCount == 3) {
         result.type = ShapeType::Triangle;
         result.label = "Triangle";
-        result.confidence = 0.9;
+        result.confidence = Params::CONFIDENCE_TRIANGLE;
         return result;
     }
 
@@ -31,14 +33,14 @@ ShapeClassifier::Classification ShapeClassifier::classify(const ShapeSegmenter::
         double aspectRatio = static_cast<double>(bounds.width) / static_cast<double>(bounds.height);
         aspectRatio = std::max(aspectRatio, 1.0 / aspectRatio);
 
-        if (aspectRatio < 1.15) {
+        if (aspectRatio < Params::SQUARE_ASPECT_RATIO_THRESHOLD) {
             result.type = ShapeType::Square;
             result.label = "Square";
-            result.confidence = 0.85;
+            result.confidence = Params::CONFIDENCE_SQUARE;
         } else {
             result.type = ShapeType::Rectangle;
             result.label = "Rectangle";
-            result.confidence = 0.8;
+            result.confidence = Params::CONFIDENCE_RECTANGLE;
         }
         return result;
     }
@@ -46,7 +48,7 @@ ShapeClassifier::Classification ShapeClassifier::classify(const ShapeSegmenter::
     if (vertexCount == 6) {
         result.type = ShapeType::Hexagon;
         result.label = "Hexagon";
-        result.confidence = 0.75;
+        result.confidence = Params::CONFIDENCE_HEXAGON;
         return result;
     }
 
@@ -55,7 +57,7 @@ ShapeClassifier::Classification ShapeClassifier::classify(const ShapeSegmenter::
         circularity = 4.0 * CV_PI * area / (perimeter * perimeter);
     }
 
-    if (circularity > 0.7) {
+    if (circularity > Params::CIRCLE_CIRCULARITY_THRESHOLD) {
         result.type = ShapeType::Circle;
         result.label = "Circle";
         result.confidence = std::min(1.0, circularity);

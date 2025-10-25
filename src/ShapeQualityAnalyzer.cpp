@@ -81,6 +81,8 @@ ShapeQualityAnalyzer::QualityScore ShapeQualityAnalyzer::evaluate(
     const ShapeSegmenter::Candidate& candidate,
     const ShapeClassifier::Classification& classification) const {
 
+    using Params = ShapeQualityAnalyzer::Parameters;
+
     QualityScore quality;
 
     if (candidate.contour.empty()) {
@@ -96,7 +98,7 @@ ShapeQualityAnalyzer::QualityScore ShapeQualityAnalyzer::evaluate(
     const double boundingArea = static_cast<double>(candidate.boundingBox.area());
     const double fillRatio = boundingArea > 0.0 ? clamp01(area / boundingArea) : 0.0;
 
-    double score = 0.2 * fillRatio;
+    double score = Params::WEIGHT_FILL_RATIO * fillRatio;
 
     switch (classification.type) {
     case ShapeClassifier::ShapeType::Circle: {
@@ -116,7 +118,7 @@ ShapeQualityAnalyzer::QualityScore ShapeQualityAnalyzer::evaluate(
             const double circularityScore = clamp01(circularity);
             const double deviationScore = clamp01(1.0 - deviationRatio);
 
-            score += 0.5 * circularityScore + 0.3 * deviationScore;
+            score += Params::WEIGHT_CIRCULARITY * circularityScore + Params::WEIGHT_DEVIATION * deviationScore;
         }
         break;
     }
@@ -125,32 +127,32 @@ ShapeQualityAnalyzer::QualityScore ShapeQualityAnalyzer::evaluate(
     case ShapeClassifier::ShapeType::Rectangle:
     case ShapeClassifier::ShapeType::Hexagon: {
         std::vector<cv::Point> approx;
-        cv::approxPolyDP(candidate.contour, approx, 0.02 * perimeter, true);
+        cv::approxPolyDP(candidate.contour, approx, Params::POLYGON_EPSILON * perimeter, true);
         if (approx.size() >= 3) {
             const double sideScore = clamp01(1.0 - sideLengthVariance(approx));
             const double angleScore = clamp01(1.0 - angleVariance(approx));
-            score += 0.5 * sideScore + 0.3 * angleScore;
+            score += Params::WEIGHT_SIDE_VARIANCE * sideScore + Params::WEIGHT_ANGLE_VARIANCE * angleScore;
         }
         break;
     }
     default:
-        score += 0.1;
+        score += Params::SCORE_UNKNOWN_PENALTY;
         break;
     }
 
     score = clamp01(score);
     quality.score = score * 100.0;
 
-    // Round to nearest 10 (ceiling)
-    quality.score = std::ceil(quality.score / 10.0) * 10.0;
+    // Round to nearest interval (ceiling)
+    quality.score = std::ceil(quality.score / Params::SCORE_ROUNDING_INTERVAL) * Params::SCORE_ROUNDING_INTERVAL;
 
-    if (quality.score >= 90.0) {
+    if (quality.score >= Params::GRADE_EXCELLENT) {
         quality.grade = "Excellent";
-    } else if (quality.score >= 75.0) {
+    } else if (quality.score >= Params::GRADE_VERY_GOOD) {
         quality.grade = "Very Good";
-    } else if (quality.score >= 60.0) {
+    } else if (quality.score >= Params::GRADE_GOOD) {
         quality.grade = "Good";
-    } else if (quality.score >= 40.0) {
+    } else if (quality.score >= Params::GRADE_ACCEPTABLE) {
         quality.grade = "Acceptable";
     } else {
         quality.grade = "Needs Improvement";

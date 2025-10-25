@@ -16,12 +16,16 @@ public:
         double cannyLowThreshold;
         double cannyHighThreshold;
         int minimumContourArea;
+        int morphKernelSize;
+        int morphCloseIterations;
 
         Config()
             : blurKernelSize(5),
               cannyLowThreshold(50.0),
               cannyHighThreshold(150.0),
-              minimumContourArea(500) {}
+              minimumContourArea(500),
+              morphKernelSize(3),
+              morphCloseIterations(2) {}
     };
 
     explicit ShapeSegmenter(const Config& config = Config());

@@ -2,6 +2,7 @@
 
 #include <opencv2/aruco.hpp>
 #include <opencv2/opencv.hpp>
+#include <array>
 #include <vector>
 
 class PerspectiveTransformer {
@@ -35,6 +36,21 @@ public:
 
     explicit PerspectiveTransformer(const Config& config = Config());
     Result process(const cv::Mat& frame) const;
+
+    struct Parameters {
+        static constexpr std::array<int, 4> CORNER_MARKER_IDS = {0, 1, 2, 3};
+        static constexpr int ARUCO_DICT = cv::aruco::DICT_4X4_50;
+
+        static constexpr int ADAPTIVE_THRESH_WIN_SIZE_MIN = 3;
+        static constexpr int ADAPTIVE_THRESH_WIN_SIZE_MAX = 23;
+        static constexpr int CORNER_REFINEMENT_WIN_SIZE = 5;
+        static constexpr int CORNER_REFINEMENT_MAX_ITERATIONS = 30;
+        static constexpr double CORNER_REFINEMENT_MIN_ACCURACY = 0.01;
+
+        static constexpr int MIN_OUTPUT_WIDTH = 200;
+        static constexpr int MASK_MARGIN_DIVISOR = 200;
+        static constexpr int MIN_MASK_MARGIN = 2;
+    };
 
 private:
     bool detectMarkers(const cv::Mat& frame,

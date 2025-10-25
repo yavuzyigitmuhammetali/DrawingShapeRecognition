@@ -7,11 +7,52 @@
 #include "ShapeSegmenter.hpp"
 #include "VideoSource.hpp"
 
+#include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
 
 class AppController {
 public:
+    struct Parameters {
+        inline static const cv::Scalar COLOR_BACKGROUND_DARK{30, 30, 30};
+        inline static const cv::Scalar COLOR_BACKGROUND_VERY_DARK{25, 25, 25};
+        inline static const cv::Scalar COLOR_ORANGE{0, 165, 255};
+        inline static const cv::Scalar COLOR_GREEN{0, 255, 0};
+        inline static const cv::Scalar COLOR_YELLOW{0, 255, 255};
+        inline static const cv::Scalar COLOR_BLUE{255, 0, 0};
+        inline static const cv::Scalar COLOR_CYAN{255, 255, 0};
+        inline static const cv::Scalar COLOR_MAGENTA{255, 0, 255};
+        inline static const cv::Scalar COLOR_WHITE{255, 255, 255};
+
+        inline static const cv::Scalar COLOR_CIRCLE = COLOR_GREEN;
+        inline static const cv::Scalar COLOR_TRIANGLE = COLOR_YELLOW;
+        inline static const cv::Scalar COLOR_SQUARE = COLOR_BLUE;
+        inline static const cv::Scalar COLOR_RECTANGLE = COLOR_CYAN;
+        inline static const cv::Scalar COLOR_HEXAGON = COLOR_MAGENTA;
+        inline static const cv::Scalar COLOR_UNKNOWN = COLOR_ORANGE;
+
+        static constexpr int TEXT_MARGIN_X = 30;
+        static constexpr int TEXT_MARGIN_Y_TOP = 80;
+        static constexpr int TEXT_MARGIN_Y_CENTER = 240;
+        static constexpr int MESSAGE_WINDOW_WIDTH = 640;
+        static constexpr int MESSAGE_WINDOW_HEIGHT = 480;
+
+        static constexpr double FONT_SCALE_NORMAL = 0.7;
+        static constexpr double FONT_SCALE_LARGE = 0.9;
+        static constexpr double FONT_SCALE_SMALL = 0.5;
+        static constexpr int FONT_THICKNESS = 1;
+        static constexpr int FONT_THICKNESS_BOLD = 2;
+        static constexpr int TEXT_PADDING = 5;
+        static constexpr int TEXT_PADDING_LARGE = 10;
+        static constexpr int TEXT_BASELINE_OFFSET = 4;
+
+        static constexpr int BBOX_THICKNESS = 2;
+
+        static constexpr int KEY_ESC = 27;
+
+        static constexpr int MAX_CAMERA_SCAN = 10;
+    };
+
     AppController();
     int run(int argc, char** argv);
 
@@ -27,7 +68,7 @@ private:
                             const std::vector<ShapeClassifier::Classification>& classifications,
                             const std::vector<ShapeQualityAnalyzer::QualityScore>& qualities) const;
 
-    std::vector<int> detectAvailableCameras(int maxCameras = 10) const;
+    std::vector<int> detectAvailableCameras(int maxCameras = Parameters::MAX_CAMERA_SCAN) const;
     int promptCameraSelection(const std::vector<int>& cameras) const;
 
     VideoSource videoSource_;

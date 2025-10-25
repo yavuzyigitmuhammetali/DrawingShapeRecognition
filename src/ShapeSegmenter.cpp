@@ -1,5 +1,7 @@
 #include "ShapeSegmenter.hpp"
 
+#include <algorithm>
+
 ShapeSegmenter::ShapeSegmenter(const Config& config)
     : config_(config) {}
 
@@ -24,8 +26,11 @@ std::vector<ShapeSegmenter::Candidate> ShapeSegmenter::segment(const cv::Mat& bi
     cv::Canny(gray, edges, config_.cannyLowThreshold, config_.cannyHighThreshold);
 
     cv::Mat closed;
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
-    cv::morphologyEx(edges, closed, cv::MORPH_CLOSE, kernel, cv::Point(-1, -1), 2);
+    const int morphKernelSize = std::max(1, config_.morphKernelSize);
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT,
+                                               cv::Size(morphKernelSize, morphKernelSize));
+    cv::morphologyEx(edges, closed, cv::MORPH_CLOSE, kernel, cv::Point(-1, -1),
+                     std::max(0, config_.morphCloseIterations));
 
     cv::Mat working = closed;
     if (!mask.empty()) {

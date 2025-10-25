@@ -5,6 +5,8 @@
 #include <iostream>
 #include <sstream>
 
+using Params = AppController::Parameters;
+
 AppController::AppController()
     : running_(false) {}
 
@@ -102,19 +104,20 @@ void AppController::processStream() {
         if (hasBirdseye) {
             cv::imshow("Bird's Eye View", birdseyeView);
         } else {
-            cv::Mat message(480, 640, CV_8UC3, cv::Scalar(30, 30, 30));
+            cv::Mat message(Params::MESSAGE_WINDOW_HEIGHT, Params::MESSAGE_WINDOW_WIDTH, CV_8UC3,
+                            Params::COLOR_BACKGROUND_DARK);
             cv::putText(message,
                         "Markerler bekleniyor...",
-                        cv::Point(30, 240),
+                        cv::Point(Params::TEXT_MARGIN_X, Params::TEXT_MARGIN_Y_CENTER),
                         cv::FONT_HERSHEY_SIMPLEX,
-                        0.9,
-                        cv::Scalar(0, 165, 255),
-                        2);
+                        Params::FONT_SCALE_LARGE,
+                        Params::COLOR_ORANGE,
+                        Params::FONT_THICKNESS_BOLD);
             cv::imshow("Bird's Eye View", message);
         }
 
         int key = cv::waitKey(1);
-        if (key == 27) { // ESC
+        if (key == Params::KEY_ESC) {
             running_ = false;
         }
     }
@@ -140,7 +143,7 @@ void AppController::processFrame(const cv::Mat& frame,
 
         cv::Mat outsideMask;
         cv::bitwise_not(perspectiveResult.originalMask, outsideMask);
-        cameraView.setTo(cv::Scalar(25, 25, 25), outsideMask);
+        cameraView.setTo(Params::COLOR_BACKGROUND_VERY_DARK, outsideMask);
 
         if (!perspectiveResult.paperOutlineImage.empty()) {
             std::vector<cv::Point> polygon;
@@ -149,7 +152,7 @@ void AppController::processFrame(const cv::Mat& frame,
                 polygon.emplace_back(cvRound(pt.x), cvRound(pt.y));
             }
             cv::polylines(cameraView, std::vector<std::vector<cv::Point>>{polygon},
-                          true, cv::Scalar(0, 255, 0), 2);
+                          true, Params::COLOR_GREEN, Params::BBOX_THICKNESS);
         }
     }
 
@@ -157,11 +160,11 @@ void AppController::processFrame(const cv::Mat& frame,
     if (!hasBirdseye) {
         cv::putText(cameraView,
                     "Markerleri gorunecek sekilde yerlestirin.",
-                    cv::Point(30, 80),
+                    cv::Point(Params::TEXT_MARGIN_X, Params::TEXT_MARGIN_Y_TOP),
                     cv::FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    cv::Scalar(0, 165, 255),
-                    2);
+                    Params::FONT_SCALE_NORMAL,
+                    Params::COLOR_ORANGE,
+                    Params::FONT_THICKNESS_BOLD);
         // No ArUco detected - let OutputManager handle recording state
         outputManager_.processFrame(cameraView, false);
         return;
@@ -181,7 +184,7 @@ void AppController::processFrame(const cv::Mat& frame,
     if (!perspectiveResult.warpedMask.empty()) {
         cv::Mat outsideMask;
         cv::bitwise_not(perspectiveResult.warpedMask, outsideMask);
-        birdseyeView.setTo(cv::Scalar(30, 30, 30), outsideMask);
+        birdseyeView.setTo(Params::COLOR_BACKGROUND_DARK, outsideMask);
     }
 
     auto candidates = segmenter_.segment(perspectiveResult.warped, perspectiveResult.warpedMask);
@@ -221,46 +224,49 @@ void AppController::annotateDetections(
         cv::Scalar color;
         switch (classification.type) {
         case ShapeClassifier::ShapeType::Circle:
-            color = cv::Scalar(0, 255, 0);
+            color = Params::COLOR_CIRCLE;
             break;
         case ShapeClassifier::ShapeType::Triangle:
-            color = cv::Scalar(0, 255, 255);
+            color = Params::COLOR_TRIANGLE;
             break;
         case ShapeClassifier::ShapeType::Square:
-            color = cv::Scalar(255, 0, 0);
+            color = Params::COLOR_SQUARE;
             break;
         case ShapeClassifier::ShapeType::Rectangle:
-            color = cv::Scalar(255, 255, 0);
+            color = Params::COLOR_RECTANGLE;
             break;
         case ShapeClassifier::ShapeType::Hexagon:
-            color = cv::Scalar(255, 0, 255);
+            color = Params::COLOR_HEXAGON;
             break;
         default:
-            color = cv::Scalar(0, 165, 255);
+            color = Params::COLOR_UNKNOWN;
             break;
         }
 
-        cv::rectangle(frame, candidate.boundingBox, color, 2);
-        cv::drawContours(frame, std::vector<std::vector<cv::Point>>{candidate.contour}, -1, color, 2);
+        cv::rectangle(frame, candidate.boundingBox, color, Params::BBOX_THICKNESS);
+        cv::drawContours(frame, std::vector<std::vector<cv::Point>>{candidate.contour}, -1, color,
+                         Params::BBOX_THICKNESS);
 
         std::ostringstream label;
         label << classification.label << " | " << std::fixed << std::setprecision(1)
               << quality.score << "% (" << quality.grade << ")";
 
         int baseline = 0;
-        cv::Size textSize = cv::getTextSize(label.str(), cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
+        cv::Size textSize = cv::getTextSize(label.str(), cv::FONT_HERSHEY_SIMPLEX,
+                                            Params::FONT_SCALE_SMALL, Params::FONT_THICKNESS, &baseline);
         cv::Rect textBg(candidate.boundingBox.x,
-                        std::max(candidate.boundingBox.y - textSize.height - 8, 0),
-                        textSize.width + 10,
-                        textSize.height + 6);
+                        std::max(candidate.boundingBox.y - textSize.height - (2 * Params::TEXT_PADDING), 0),
+                        textSize.width + (2 * Params::TEXT_PADDING),
+                        textSize.height + Params::TEXT_PADDING + baseline);
 
         cv::rectangle(frame, textBg, cv::Scalar(0, 0, 0), cv::FILLED);
         cv::putText(frame, label.str(),
-                    cv::Point(textBg.x + 5, textBg.y + textBg.height - 4),
-                cv::FONT_HERSHEY_SIMPLEX,
-                0.5,
-                cv::Scalar(255, 255, 255),
-                1);
+                    cv::Point(textBg.x + Params::TEXT_PADDING,
+                              textBg.y + textBg.height - Params::TEXT_BASELINE_OFFSET),
+                    cv::FONT_HERSHEY_SIMPLEX,
+                    Params::FONT_SCALE_SMALL,
+                    Params::COLOR_WHITE,
+                    Params::FONT_THICKNESS);
     }
 }
 

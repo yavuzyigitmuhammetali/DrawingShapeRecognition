@@ -3,14 +3,10 @@
 #include <algorithm>
 #include <map>
 
-namespace {
-const std::vector<int> CORNER_MARKER_IDS = {0, 1, 2, 3};
-const int ARUCO_DICT = cv::aruco::DICT_4X4_50;
-}
-
 PerspectiveTransformer::PerspectiveTransformer(const Config& config)
     : config_(config) {
-    cv::aruco::Dictionary dictionaryData = cv::aruco::getPredefinedDictionary(ARUCO_DICT);
+    using Params = PerspectiveTransformer::Parameters;
+    cv::aruco::Dictionary dictionaryData = cv::aruco::getPredefinedDictionary(Params::ARUCO_DICT);
     dictionary_ = cv::makePtr<cv::aruco::Dictionary>(dictionaryData);
 }
 
@@ -73,16 +69,17 @@ PerspectiveTransformer::Result PerspectiveTransformer::process(const cv::Mat& fr
 bool PerspectiveTransformer::detectMarkers(const cv::Mat& frame,
                                            std::vector<int>& markerIds,
                                            std::vector<std::vector<cv::Point2f>>& markerCorners) const {
+    using Params = PerspectiveTransformer::Parameters;
     cv::Ptr<cv::aruco::DetectorParameters> parameters = cv::makePtr<cv::aruco::DetectorParameters>();
-    parameters->adaptiveThreshWinSizeMin = 3;
-    parameters->adaptiveThreshWinSizeMax = 23;
+    parameters->adaptiveThreshWinSizeMin = Params::ADAPTIVE_THRESH_WIN_SIZE_MIN;
+    parameters->adaptiveThreshWinSizeMax = Params::ADAPTIVE_THRESH_WIN_SIZE_MAX;
     parameters->cornerRefinementMethod = cv::aruco::CORNER_REFINE_SUBPIX;
-    parameters->cornerRefinementWinSize = 5;
-    parameters->cornerRefinementMaxIterations = 30;
-    parameters->cornerRefinementMinAccuracy = 0.01;
+    parameters->cornerRefinementWinSize = Params::CORNER_REFINEMENT_WIN_SIZE;
+    parameters->cornerRefinementMaxIterations = Params::CORNER_REFINEMENT_MAX_ITERATIONS;
+    parameters->cornerRefinementMinAccuracy = Params::CORNER_REFINEMENT_MIN_ACCURACY;
 
     cv::aruco::detectMarkers(frame, dictionary_, markerCorners, markerIds, parameters);
-    return markerIds.size() >= CORNER_MARKER_IDS.size();
+    return markerIds.size() >= Params::CORNER_MARKER_IDS.size();
 }
 
 bool PerspectiveTransformer::extractPaperCorners(
@@ -90,11 +87,13 @@ bool PerspectiveTransformer::extractPaperCorners(
     const std::vector<std::vector<cv::Point2f>>& markerCorners,
     std::vector<cv::Point2f>& paperCorners) const {
 
+    using Params = PerspectiveTransformer::Parameters;
     std::map<int, cv::Point2f> markerCenters;
 
     for (size_t i = 0; i < markerIds.size(); ++i) {
         const int id = markerIds[i];
-        if (std::find(CORNER_MARKER_IDS.begin(), CORNER_MARKER_IDS.end(), id) == CORNER_MARKER_IDS.end()) {
+        if (std::find(Params::CORNER_MARKER_IDS.begin(), Params::CORNER_MARKER_IDS.end(), id) ==
+            Params::CORNER_MARKER_IDS.end()) {
             continue;
         }
 
@@ -108,7 +107,7 @@ bool PerspectiveTransformer::extractPaperCorners(
         markerCenters[id] = center;
     }
 
-    if (markerCenters.size() != CORNER_MARKER_IDS.size()) {
+    if (markerCenters.size() != Params::CORNER_MARKER_IDS.size()) {
         return false;
     }
 
@@ -168,7 +167,7 @@ cv::Mat PerspectiveTransformer::buildHomography(const std::vector<cv::Point2f>& 
     }
 
     const float aspectRatio = config_.paperHeightCm / config_.paperWidthCm;
-    const int outputWidth = std::max(config_.outputWidthPx, 200);
+    const int outputWidth = std::max(config_.outputWidthPx, Parameters::MIN_OUTPUT_WIDTH);
     const int outputHeight = static_cast<int>(std::round(outputWidth * aspectRatio));
 
     outputSize = cv::Size(outputWidth, outputHeight);
@@ -225,7 +224,8 @@ void PerspectiveTransformer::generateMasks(const cv::Mat& frame,
     }
     cv::fillConvexPoly(warpedMask, warpedOutline, cv::Scalar(255));
 
-    const int marginPixels = std::max(2, outputSize.width / 200);
+    const int marginPixels = std::max(Parameters::MIN_MASK_MARGIN,
+                                      outputSize.width / Parameters::MASK_MARGIN_DIVISOR);
     if (marginPixels > 0) {
         cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE,
                                                    cv::Size(2 * marginPixels + 1, 2 * marginPixels + 1));
