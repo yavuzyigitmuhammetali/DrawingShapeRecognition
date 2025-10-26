@@ -44,7 +44,8 @@ void OutputManager::logDetection(const ShapeSegmenter::Candidate& candidate,
     std::ostringstream line;
     line << classification.label
          << " | confidence=" << std::fixed << std::setprecision(2) << classification.confidence
-         << " | quality=" << std::setprecision(1) << quality.score
+         << " | quality=" << std::setprecision(1) << quality.displayScore
+         << " (sys=" << std::setprecision(1) << quality.systemScore << ")"
          << " (" << quality.grade << ")"
          << " | bbox=[" << candidate.boundingBox.x << "," << candidate.boundingBox.y
          << "," << candidate.boundingBox.width << "," << candidate.boundingBox.height << "]";

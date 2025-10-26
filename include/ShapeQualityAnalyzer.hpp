@@ -6,7 +6,8 @@
 class ShapeQualityAnalyzer {
 public:
     struct QualityScore {
-        double score = 0.0;
+        double displayScore = 0.0; // Quality score (0-100) shown to the user
+        double systemScore = 0.0;  // Quality score (0-100) for system use (currently identical to displayScore)
         std::string grade = "N/A";
     };
 
@@ -21,11 +22,9 @@ public:
 
         static constexpr double SCORE_UNKNOWN_PENALTY = 0.1;
 
-        // NOTE: Weight parameters removed in favor of principled positive/negative architecture
-        // Scoring now uses:
-        //   - Positive metrics: shape-specific affinities (circularity for circles, etc.)
-        //   - Negative penalties: rival shape affinities (polygon affinity penalizes circles, etc.)
-        //   - Formula: final_score = positive_score * (1.0 - negative_penalty)
+        // Scoring Architecture:
+        //   - Scores based purely on positive quality metrics (no rival penalties)
+        //   - displayScore = systemScore = positive_score * 100
     };
 
     QualityScore evaluate(const ShapeSegmenter::Candidate& candidate,

@@ -337,85 +337,61 @@ ShapeQualityAnalyzer::QualityScore ShapeQualityAnalyzer::evaluate(
     const double hexagonAffinity = calculateHexagonAffinity(approx);
 
     // ========================================================================
-    // STEP B: APPLY POSITIVE/NEGATIVE ARCHITECTURE
+    // STEP B: CALCULATE QUALITY SCORE
     // ========================================================================
-    // Each shape uses its positive metrics and is penalized by rival metrics
+    // positive_score: Quality metric based on shape-specific affinity and neatness
+    // Both displayScore and systemScore are identical (no penalties applied)
 
-    double score = 0.0;
+    double positive_score = 0.0;
 
     switch (classification.type) {
     case ShapeClassifier::ShapeType::Circle: {
-        // POSITIVE: Circle-specific metrics
-        const double positiveScore = (circularityScore + ellipseAspectRatioScore) / 2.0;
-
-        // NEGATIVE: Polygon affinity is a penalty for circles
-        const double negativePenalty = std::max({triangleAffinity, squareAffinity, rectangleAffinity, hexagonAffinity});
-
-        // Final score: positive * (1 - negative)
-        score = positiveScore * (1.0 - negativePenalty);
+        // Circle quality: circularity + ellipse aspect ratio
+        const double circle_goodness = (circularityScore + ellipseAspectRatioScore) / 2.0;
+        positive_score = circle_goodness;
         break;
     }
     case ShapeClassifier::ShapeType::Triangle: {
-        // POSITIVE: Triangle affinity, waviness, solidity
-        const double positiveScore = triangleAffinity * lineWavinessScore * solidityScore;
-
-        // NEGATIVE: Circularity is a penalty (directly addresses "Bad Circle -> Triangle" problem)
-        const double negativePenalty = circularityScore;
-
-        // Final score
-        score = positiveScore * (1.0 - negativePenalty);
+        // Triangle quality: affinity × waviness × solidity
+        positive_score = triangleAffinity * lineWavinessScore * solidityScore;
         break;
     }
     case ShapeClassifier::ShapeType::Square: {
-        // POSITIVE: Square affinity, waviness, solidity
-        const double positiveScore = squareAffinity * lineWavinessScore * solidityScore;
-
-        // NEGATIVE: Circularity is a penalty
-        const double negativePenalty = circularityScore;
-
-        // Final score
-        score = positiveScore * (1.0 - negativePenalty);
+        // Square quality: affinity × waviness × solidity
+        positive_score = squareAffinity * lineWavinessScore * solidityScore;
         break;
     }
     case ShapeClassifier::ShapeType::Rectangle: {
-        // POSITIVE: Rectangle affinity, waviness, solidity
-        const double positiveScore = rectangleAffinity * lineWavinessScore * solidityScore;
-
-        // NEGATIVE: Circularity is a penalty
-        const double negativePenalty = circularityScore;
-
-        // Final score
-        score = positiveScore * (1.0 - negativePenalty);
+        // Rectangle quality: affinity × waviness × solidity
+        positive_score = rectangleAffinity * lineWavinessScore * solidityScore;
         break;
     }
     case ShapeClassifier::ShapeType::Hexagon: {
-        // POSITIVE: Hexagon affinity, waviness, solidity
-        const double positiveScore = hexagonAffinity * lineWavinessScore * solidityScore;
-
-        // NEGATIVE: Circularity is a penalty
-        const double negativePenalty = circularityScore;
-
-        // Final score
-        score = positiveScore * (1.0 - negativePenalty);
+        // Hexagon quality: affinity × waviness × solidity
+        positive_score = hexagonAffinity * lineWavinessScore * solidityScore;
         break;
     }
     default:
-        score = Params::SCORE_UNKNOWN_PENALTY;
+        positive_score = Params::SCORE_UNKNOWN_PENALTY;
         break;
     }
 
-    // Clamp and convert to percentage
-    score = clamp01(score);
-    quality.score = score * 100.0;
+    // ========================================================================
+    // CALCULATE SCORES (NO PENALTIES)
+    // ========================================================================
 
-    // Assign grade based on thresholds
-    if (quality.score >= Params::GRADE_EXCELLENT) {
+    // Both scores are now identical - based purely on positive quality metrics
+    quality.displayScore = clamp01(positive_score) * 100.0;
+    quality.systemScore = quality.displayScore;
+
+    // Assign grade based on the user-facing displayScore
+    if (quality.displayScore >= Params::GRADE_EXCELLENT) {
         quality.grade = "Excellent";
-    } else if (quality.score >= Params::GRADE_VERY_GOOD) {
+    } else if (quality.displayScore >= Params::GRADE_VERY_GOOD) {
         quality.grade = "Very Good";
-    } else if (quality.score >= Params::GRADE_GOOD) {
+    } else if (quality.displayScore >= Params::GRADE_GOOD) {
         quality.grade = "Good";
-    } else if (quality.score >= Params::GRADE_ACCEPTABLE) {
+    } else if (quality.displayScore >= Params::GRADE_ACCEPTABLE) {
         quality.grade = "Acceptable";
     } else {
         quality.grade = "Needs Improvement";

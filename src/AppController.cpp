@@ -248,8 +248,9 @@ void AppController::annotateDetections(
                          Params::BBOX_THICKNESS);
 
         std::ostringstream label;
-        label << classification.label << " | " << std::fixed << std::setprecision(1)
-              << quality.score << "% (" << quality.grade << ")";
+        label << classification.label << " | Q:" << std::fixed << std::setprecision(0) << quality.displayScore
+              << " (S:" << std::setprecision(0) << quality.systemScore << ") | "
+              << quality.grade;
 
         int baseline = 0;
         cv::Size textSize = cv::getTextSize(label.str(), cv::FONT_HERSHEY_SIMPLEX,
