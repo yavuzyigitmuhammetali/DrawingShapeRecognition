@@ -23,7 +23,7 @@ PerspectiveTransformer::Result PerspectiveTransformer::process(const cv::Mat& fr
 
     if (!detectMarkers(frame, markerIds, markerCorners)) {
         cv::putText(result.annotatedFrame,
-                    "ArUco markerleri araniyor (IDs: 0,1,2,3)",
+                    "Searching for ArUco markers (IDs: 0,1,2,3)",
                     cv::Point(30, 50),
                     cv::FONT_HERSHEY_SIMPLEX,
                     0.8,
@@ -37,7 +37,7 @@ PerspectiveTransformer::Result PerspectiveTransformer::process(const cv::Mat& fr
     std::vector<cv::Point2f> paperCorners;
     if (!extractPaperCorners(markerIds, markerCorners, paperCorners)) {
         cv::putText(result.annotatedFrame,
-                    "Tum kose markerleri gorunur degil",
+                    "Not all corner markers are visible",
                     cv::Point(30, 50),
                     cv::FONT_HERSHEY_SIMPLEX,
                     0.8,

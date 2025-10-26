@@ -68,7 +68,7 @@ AppController::AppController()
 
 int AppController::run(int argc, char** argv) {
     if (!initialize(argc, argv)) {
-        std::cerr << "Baslatma basarisiz." << std::endl;
+        std::cerr << "Initialization failed." << std::endl;
         return -1;
     }
 
@@ -79,7 +79,7 @@ int AppController::run(int argc, char** argv) {
 }
 
 bool AppController::initialize(int argc, char** argv) {
-    std::cout << "Drawing Shape Recognition baslatiliyor..." << std::endl;
+    std::cout << "Starting Drawing Shape Recognition..." << std::endl;
 
     bool opened = false;
     bool argumentProvided = argc > 1;
@@ -92,7 +92,7 @@ bool AppController::initialize(int argc, char** argv) {
             int cameraIndex = std::stoi(argument);
             opened = videoSource_.open(cameraIndex);
             if (!opened) {
-                std::cout << "Kamera acilamadi. Kullanilabilir kameralar aranacak.\n";
+                std::cout << "Failed to open camera. Searching for available cameras.\n";
             }
         } else {
             opened = videoSource_.open(argument);
@@ -100,7 +100,7 @@ bool AppController::initialize(int argc, char** argv) {
     } else {
         auto cameras = detectAvailableCameras();
         if (cameras.empty()) {
-            std::cerr << "Kullanilabilir kamera bulunamadi." << std::endl;
+            std::cerr << "No available camera found." << std::endl;
             return false;
         }
         int selection = promptCameraSelection(cameras);
@@ -114,7 +114,7 @@ bool AppController::initialize(int argc, char** argv) {
         if (argumentProvided) {
             auto cameras = detectAvailableCameras();
             if (cameras.empty()) {
-                std::cerr << "Kullanilabilir kamera bulunamadi." << std::endl;
+                std::cerr << "No available camera found." << std::endl;
                 return false;
             }
             int selection = promptCameraSelection(cameras);
@@ -126,12 +126,12 @@ bool AppController::initialize(int argc, char** argv) {
     }
 
     if (!opened) {
-        std::cerr << "Girdi kaynagi acilamadi." << std::endl;
+        std::cerr << "Could not open input source." << std::endl;
         return false;
     }
 
     running_ = true;
-    std::cout << "✅ Sistem hazır. ArUco marker tespiti bekleniyor..." << std::endl;
+    std::cout << "✅ System ready. Waiting for ArUco marker detection..." << std::endl;
     return true;
 }
 
@@ -163,7 +163,7 @@ void AppController::processStream() {
             cv::Mat message(Params::MESSAGE_WINDOW_HEIGHT, Params::MESSAGE_WINDOW_WIDTH, CV_8UC3,
                             Params::COLOR_BACKGROUND_DARK);
             cv::putText(message,
-                        "Markerler bekleniyor...",
+                        "Waiting for markers...",
                         cv::Point(Params::TEXT_MARGIN_X, Params::TEXT_MARGIN_Y_CENTER),
                         cv::FONT_HERSHEY_SIMPLEX,
                         Params::FONT_SCALE_LARGE,
@@ -276,7 +276,7 @@ void AppController::renderMarkerPrompt(cv::Mat& cameraView) const {
     }
 
     cv::putText(cameraView,
-                "Markerleri gorunecek sekilde yerlestirin.",
+                "Place the markers so they are visible.",
                 cv::Point(Params::TEXT_MARGIN_X, Params::TEXT_MARGIN_Y_TOP),
                 cv::FONT_HERSHEY_SIMPLEX,
                 Params::FONT_SCALE_NORMAL,
@@ -443,7 +443,7 @@ void AppController::annotateDetections(
 std::vector<int> AppController::detectAvailableCameras(int maxCameras) const {
     std::vector<int> cameras;
 
-    std::cout << "Kameralar taraniyor..." << std::endl;
+    std::cout << "Scanning cameras..." << std::endl;
     for (int index = 0; index < maxCameras; ++index) {
         cv::VideoCapture probe(index);
         if (!probe.isOpened()) {
@@ -459,7 +459,7 @@ std::vector<int> AppController::detectAvailableCameras(int maxCameras) const {
         int width = static_cast<int>(probe.get(cv::CAP_PROP_FRAME_WIDTH));
         int height = static_cast<int>(probe.get(cv::CAP_PROP_FRAME_HEIGHT));
 
-        std::cout << "  Kamera " << index << ": " << width << "x" << height;
+        std::cout << "  Camera " << index << ": " << width << "x" << height;
 #if CV_VERSION_MAJOR >= 4
         std::string backend = probe.getBackendName();
         if (!backend.empty()) {
@@ -480,17 +480,17 @@ int AppController::promptCameraSelection(const std::vector<int>& cameras) const 
     }
 
     if (cameras.size() == 1) {
-        std::cout << "Tek kamera bulundu. Kamera " << cameras.front() << " kullanilacak." << std::endl;
+        std::cout << "Single camera found. Using camera " << cameras.front() << '.' << std::endl;
         return cameras.front();
     }
 
-    std::cout << "Birden fazla kamera bulundu:" << std::endl;
+    std::cout << "Multiple cameras found:" << std::endl;
     for (size_t i = 0; i < cameras.size(); ++i) {
-        std::cout << "  [" << i << "] Kamera " << cameras[i] << std::endl;
+        std::cout << "  [" << i << "] Camera " << cameras[i] << std::endl;
     }
 
     while (true) {
-        std::cout << "Seciminiz (0-" << cameras.size() - 1 << "): ";
+        std::cout << "Your selection (0-" << cameras.size() - 1 << "): ";
         std::string input;
         if (!std::getline(std::cin, input)) {
             return -1;
@@ -502,7 +502,7 @@ int AppController::promptCameraSelection(const std::vector<int>& cameras) const 
             return cameras[choice];
         }
 
-        std::cout << "Gecersiz secim, tekrar deneyin." << std::endl;
+        std::cout << "Invalid selection, try again." << std::endl;
     }
 }
 

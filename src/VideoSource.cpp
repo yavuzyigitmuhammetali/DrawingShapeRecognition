@@ -19,7 +19,7 @@ VideoSource::~VideoSource() {
 bool VideoSource::open(int cameraIndex) {
     cv::VideoCapture capture(cameraIndex);
     if (!capture.isOpened()) {
-        std::cerr << "Kamera acilamadi: " << cameraIndex << std::endl;
+        std::cerr << "Failed to open camera: " << cameraIndex << std::endl;
         return false;
     }
 
@@ -33,7 +33,7 @@ bool VideoSource::open(int cameraIndex) {
 bool VideoSource::open(const std::string& videoPath) {
     cv::VideoCapture capture(videoPath);
     if (!capture.isOpened()) {
-        std::cerr << "Video dosyasi acilamadi: " << videoPath << std::endl;
+        std::cerr << "Unable to open video file: " << videoPath << std::endl;
         return false;
     }
 

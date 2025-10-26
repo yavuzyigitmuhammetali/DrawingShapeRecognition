@@ -84,7 +84,7 @@ void OutputManager::processFrame(const cv::Mat& frame, bool arucoDetected) {
                 state_ = RecordingState::BUFFERING;
                 bufferStartTime_ = std::chrono::steady_clock::now();
                 videoWriter_.write(frame);  // Continue writing during buffer period
-                std::cout << "ArUco kaybedildi. Buffer süresi başladı ("
+                std::cout << "ArUco lost. Buffer period started ("
                           << BUFFER_TIMEOUT_SECONDS << "s)..." << std::endl;
             }
             break;
@@ -95,7 +95,7 @@ void OutputManager::processFrame(const cv::Mat& frame, bool arucoDetected) {
                 // ArUco detected again, resume recording
                 state_ = RecordingState::RECORDING;
                 videoWriter_.write(frame);
-                std::cout << "ArUco tekrar tespit edildi. Kayıt devam ediyor." << std::endl;
+                std::cout << "ArUco detected again. Continuing recording." << std::endl;
             } else {
                 // Check buffer timeout
                 auto now = std::chrono::steady_clock::now();
@@ -107,7 +107,7 @@ void OutputManager::processFrame(const cv::Mat& frame, bool arucoDetected) {
                     videoWriter_.write(frame);
                 } else {
                     // Buffer timeout expired, stop recording
-                    std::cout << "Buffer süresi doldu. Kayıt durduruluyor." << std::endl;
+                    std::cout << "Buffer timeout reached. Stopping recording." << std::endl;
                     stopCurrentRecording();
                     state_ = RecordingState::IDLE;
                 }
@@ -118,7 +118,7 @@ void OutputManager::processFrame(const cv::Mat& frame, bool arucoDetected) {
 
 bool OutputManager::startNewRecording(const cv::Size& frameSize, double fps) {
     if (frameSize.width <= 0 || frameSize.height <= 0) {
-        std::cerr << "Geçersiz frame boyutu: " << frameSize.width
+        std::cerr << "Invalid frame size: " << frameSize.width
                   << "x" << frameSize.height << std::endl;
         return false;
     }
@@ -130,14 +130,14 @@ bool OutputManager::startNewRecording(const cv::Size& frameSize, double fps) {
     videoWriter_.open(currentVideoPath_, fourcc, fps, frameSize, true);
 
     if (!videoWriter_.isOpened()) {
-        std::cerr << "Video writer açılamadı: " << currentVideoPath_ << std::endl;
+        std::cerr << "Unable to open video writer: " << currentVideoPath_ << std::endl;
         return false;
     }
 
     // Record start time for duration check
     recordingStartTime_ = std::chrono::steady_clock::now();
 
-    std::cout << "✅ Video kaydı başladı: " << currentVideoPath_ << std::endl;
+    std::cout << "✅ Video recording started: " << currentVideoPath_ << std::endl;
     return true;
 }
 
@@ -159,15 +159,15 @@ void OutputManager::stopCurrentRecording() {
         try {
             if (fs::exists(currentVideoPath_)) {
                 fs::remove(currentVideoPath_);
-                std::cout << "⚠️  Kısa video silindi (" << std::fixed << std::setprecision(1)
+                std::cout << "⚠️  Short video deleted (" << std::fixed << std::setprecision(1)
                           << duration << "s < " << MINIMUM_VIDEO_DURATION_SECONDS
                           << "s): " << currentVideoPath_ << std::endl;
             }
         } catch (const std::exception& e) {
-            std::cerr << "Video silinemedi: " << e.what() << std::endl;
+            std::cerr << "Failed to delete video: " << e.what() << std::endl;
         }
     } else {
-        std::cout << "✅ Video kaydı tamamlandı (" << std::fixed << std::setprecision(1)
+        std::cout << "✅ Video recording completed (" << std::fixed << std::setprecision(1)
                   << duration << "s): " << currentVideoPath_ << std::endl;
     }
 }
