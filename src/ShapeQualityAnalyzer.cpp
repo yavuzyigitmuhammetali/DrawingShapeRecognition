@@ -6,40 +6,122 @@
 #include <numeric>
 
 namespace {
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
 double clamp01(double value) {
     return std::max(0.0, std::min(1.0, value));
 }
 
-double sideLengthVariance(const std::vector<cv::Point>& polygon) {
-    if (polygon.size() < 2) {
-        return 1.0;
+// ============================================================================
+// BASE METRIC CALCULATIONS (used as both positive and negative signals)
+// ============================================================================
+
+// Calculate solidity: Contour Area / Convex Hull Area
+double calculateSolidityScore(const std::vector<cv::Point>& contour, double contourArea) {
+    if (contour.size() < 3 || contourArea <= 0.0) {
+        return 0.0;
     }
 
-    std::vector<double> lengths;
-    const size_t count = polygon.size();
-    lengths.reserve(count);
+    std::vector<cv::Point> hull;
+    cv::convexHull(contour, hull);
 
-    for (size_t i = 0; i < count; ++i) {
-        const cv::Point2f a = polygon[i];
-        const cv::Point2f b = polygon[(i + 1) % count];
-        lengths.push_back(cv::norm(a - b));
+    const double hullArea = cv::contourArea(hull);
+    if (hullArea <= 0.0) {
+        return 0.0;
     }
 
-    const double mean = std::accumulate(lengths.begin(), lengths.end(), 0.0) / static_cast<double>(lengths.size());
-    if (mean <= 0.0) {
-        return 1.0;
-    }
-
-    double variance = 0.0;
-    for (double len : lengths) {
-        const double diff = len - mean;
-        variance += diff * diff;
-    }
-    variance /= static_cast<double>(lengths.size());
-    return variance / (mean * mean + 1e-6);
+    return clamp01(contourArea / hullArea);
 }
 
-double angleVariance(const std::vector<cv::Point>& polygon) {
+// Calculate line waviness/straightness by measuring RMS distance from contour to ideal polygon edges
+// Higher score = straighter lines
+double calculateLineWavinessScore(const std::vector<cv::Point>& contour,
+                                   const std::vector<cv::Point>& polygon,
+                                   double perimeter) {
+    if (contour.empty() || polygon.size() < 3 || perimeter <= 0.0) {
+        return 0.0;
+    }
+
+    double sumSquaredDistances = 0.0;
+
+    for (const auto& pt : contour) {
+        const cv::Point2f ptf(static_cast<float>(pt.x), static_cast<float>(pt.y));
+
+        // Find minimum distance from this contour point to any edge of the idealized polygon
+        double minDist = std::numeric_limits<double>::max();
+
+        for (size_t i = 0; i < polygon.size(); ++i) {
+            const cv::Point2f p1(static_cast<float>(polygon[i].x), static_cast<float>(polygon[i].y));
+            const cv::Point2f p2(static_cast<float>(polygon[(i + 1) % polygon.size()].x),
+                                 static_cast<float>(polygon[(i + 1) % polygon.size()].y));
+
+            const cv::Point2f edge = p2 - p1;
+            const cv::Point2f toPoint = ptf - p1;
+
+            const double edgeLengthSq = edge.dot(edge);
+            if (edgeLengthSq < 1e-6) {
+                minDist = std::min(minDist, cv::norm(ptf - p1));
+                continue;
+            }
+
+            const double t = clamp01(toPoint.dot(edge) / edgeLengthSq);
+            const cv::Point2f projection = p1 + t * edge;
+            const double dist = cv::norm(ptf - projection);
+
+            minDist = std::min(minDist, dist);
+        }
+
+        sumSquaredDistances += minDist * minDist;
+    }
+
+    const double rmsDistance = std::sqrt(sumSquaredDistances / static_cast<double>(contour.size()));
+    const double normalizedDeviation = rmsDistance / (perimeter + 1e-6);
+    const double straightnessScore = std::exp(-normalizedDeviation * 50.0);
+
+    return clamp01(straightnessScore);
+}
+
+// Calculate circularity: 4πA / P²
+// Perfect circle = 1.0
+double calculateCircularityScore(double area, double perimeter) {
+    if (perimeter <= 0.0 || area <= 0.0) {
+        return 0.0;
+    }
+    const double circularity = (4.0 * CV_PI * area) / (perimeter * perimeter + 1e-6);
+    return clamp01(std::pow(circularity, 2.0)); // Quadratic penalty for sensitivity
+}
+
+// Calculate ellipse aspect ratio score
+// Perfect circle has aspect ratio = 1.0
+double calculateEllipseAspectRatioScore(const std::vector<cv::Point>& contour) {
+    if (contour.size() < 5) {
+        return 0.0;
+    }
+
+    try {
+        const cv::RotatedRect ellipse = cv::fitEllipse(contour);
+        const float majorAxis = std::max(ellipse.size.width, ellipse.size.height);
+        const float minorAxis = std::min(ellipse.size.width, ellipse.size.height);
+
+        if (majorAxis > 0.0f) {
+            const double aspectRatio = static_cast<double>(minorAxis) / static_cast<double>(majorAxis);
+            return clamp01(std::pow(aspectRatio, 3.0)); // Cubic penalty for high sensitivity
+        }
+    } catch (...) {
+        // fitEllipse can throw if points are collinear
+    }
+
+    return 0.0;
+}
+
+// ============================================================================
+// SHAPE-SPECIFIC AFFINITY CALCULATIONS
+// ============================================================================
+
+// Helper: Calculate angle variance for a polygon
+double calculateAngleVariance(const std::vector<cv::Point>& polygon) {
     if (polygon.size() < 3) {
         return 1.0;
     }
@@ -76,91 +158,135 @@ double angleVariance(const std::vector<cv::Point>& polygon) {
     return variance / (mean * mean + 1e-6);
 }
 
-// Calculate solidity: Contour Area / Convex Hull Area
-// A higher solidity (closer to 1.0) indicates a more convex, solid shape
-double calculateSolidity(const std::vector<cv::Point>& contour, double contourArea) {
-    if (contour.size() < 3 || contourArea <= 0.0) {
-        return 0.0;
+// Helper: Calculate side length variance for a polygon
+double calculateSideLengthVariance(const std::vector<cv::Point>& polygon) {
+    if (polygon.size() < 2) {
+        return 1.0;
     }
 
-    std::vector<cv::Point> hull;
-    cv::convexHull(contour, hull);
+    std::vector<double> lengths;
+    const size_t count = polygon.size();
+    lengths.reserve(count);
 
-    const double hullArea = cv::contourArea(hull);
-    if (hullArea <= 0.0) {
-        return 0.0;
+    for (size_t i = 0; i < count; ++i) {
+        const cv::Point2f a = polygon[i];
+        const cv::Point2f b = polygon[(i + 1) % count];
+        lengths.push_back(cv::norm(a - b));
     }
 
-    return clamp01(contourArea / hullArea);
+    const double mean = std::accumulate(lengths.begin(), lengths.end(), 0.0) / static_cast<double>(lengths.size());
+    if (mean <= 0.0) {
+        return 1.0;
+    }
+
+    double variance = 0.0;
+    for (double len : lengths) {
+        const double diff = len - mean;
+        variance += diff * diff;
+    }
+    variance /= static_cast<double>(lengths.size());
+    return variance / (mean * mean + 1e-6);
 }
 
-// Calculate line straightness by measuring RMS distance from contour points to idealized polygon edges
-// Returns a normalized score (0.0 = very wavy, 1.0 = perfectly straight)
-double calculateLineStraightness(const std::vector<cv::Point>& contour, const std::vector<cv::Point>& polygon, double perimeter) {
-    if (contour.empty() || polygon.size() < 3 || perimeter <= 0.0) {
+// Triangle affinity: good angle consistency
+double calculateTriangleAffinity(const std::vector<cv::Point>& approx) {
+    if (approx.size() != 3) {
+        return 0.0;
+    }
+    const double angleVar = calculateAngleVariance(approx);
+    return clamp01(1.0 - angleVar * 2.0); // Balanced strictness
+}
+
+// Square affinity: robust median-based side scoring
+// BALANCED for fairness with rectangle scoring
+double calculateSquareAffinity(const std::vector<cv::Point>& approx) {
+    if (approx.size() != 4) {
         return 0.0;
     }
 
-    double sumSquaredDistances = 0.0;
-
-    for (const auto& pt : contour) {
-        const cv::Point2f ptf(static_cast<float>(pt.x), static_cast<float>(pt.y));
-
-        // Find minimum distance from this contour point to any edge of the idealized polygon
-        double minDist = std::numeric_limits<double>::max();
-
-        for (size_t i = 0; i < polygon.size(); ++i) {
-            const cv::Point2f p1(static_cast<float>(polygon[i].x), static_cast<float>(polygon[i].y));
-            const cv::Point2f p2(static_cast<float>(polygon[(i + 1) % polygon.size()].x),
-                                 static_cast<float>(polygon[(i + 1) % polygon.size()].y));
-
-            // Calculate perpendicular distance from point to line segment
-            const cv::Point2f edge = p2 - p1;
-            const cv::Point2f toPoint = ptf - p1;
-
-            const double edgeLengthSq = edge.dot(edge);
-            if (edgeLengthSq < 1e-6) {
-                // Degenerate edge, use point-to-point distance
-                minDist = std::min(minDist, cv::norm(ptf - p1));
-                continue;
-            }
-
-            // Project point onto line (parameter t in [0, 1] for line segment)
-            const double t = clamp01(toPoint.dot(edge) / edgeLengthSq);
-            const cv::Point2f projection = p1 + t * edge;
-            const double dist = cv::norm(ptf - projection);
-
-            minDist = std::min(minDist, dist);
-        }
-
-        sumSquaredDistances += minDist * minDist;
+    // Calculate all 4 side lengths
+    std::vector<double> lengths;
+    lengths.reserve(4);
+    for (size_t i = 0; i < 4; ++i) {
+        const cv::Point2f a = approx[i];
+        const cv::Point2f b = approx[(i + 1) % 4];
+        lengths.push_back(cv::norm(a - b));
     }
 
-    // Calculate RMS distance
-    const double rmsDistance = std::sqrt(sumSquaredDistances / static_cast<double>(contour.size()));
+    // Sort to find median
+    std::sort(lengths.begin(), lengths.end());
 
-    // Normalize by perimeter to make it scale-invariant
-    // A typical "good" drawing might have RMS distance around 1-2% of perimeter
-    // We'll use an exponential decay to penalize deviation
-    const double normalizedDeviation = rmsDistance / (perimeter + 1e-6);
-    const double straightnessScore = std::exp(-normalizedDeviation * 50.0); // Aggressive penalty
+    // Calculate median (for 4 elements: average of middle two)
+    const double median = (lengths[1] + lengths[2]) / 2.0;
 
-    return clamp01(straightnessScore);
+    if (median <= 0.0) {
+        return 0.0;
+    }
+
+    // Calculate total normalized absolute deviation from median
+    double totalDeviation = 0.0;
+    for (double L : lengths) {
+        totalDeviation += std::abs(L - median);
+    }
+
+    // Normalize by total length (median * 4)
+    const double normalizedError = totalDeviation / (median * 4.0);
+
+    // Convert to affinity with BALANCED strictness (1.5 instead of 2.0 for fairness)
+    return std::max(0.0, 1.0 - normalizedError * 1.5);
 }
 
-// Calculate distance from point to line segment
-double pointToSegmentDistance(const cv::Point2f& pt, const cv::Point2f& segStart, const cv::Point2f& segEnd) {
-    const cv::Point2f edge = segEnd - segStart;
-    const cv::Point2f toPoint = pt - segStart;
-
-    const double edgeLengthSq = edge.dot(edge);
-    if (edgeLengthSq < 1e-6) {
-        return cv::norm(pt - segStart);
+// Rectangle affinity: opposite-side scoring
+// BALANCED for fairness with square scoring
+double calculateRectangleAffinity(const std::vector<cv::Point>& approx) {
+    if (approx.size() != 4) {
+        return 0.0;
     }
 
-    const double t = clamp01(toPoint.dot(edge) / edgeLengthSq);
-    const cv::Point2f projection = segStart + t * edge;
-    return cv::norm(pt - projection);
+    // Calculate all 4 side lengths
+    std::vector<double> lengths;
+    lengths.reserve(4);
+    for (size_t i = 0; i < 4; ++i) {
+        const cv::Point2f a = approx[i];
+        const cv::Point2f b = approx[(i + 1) % 4];
+        lengths.push_back(cv::norm(a - b));
+    }
+
+    const double L1 = lengths[0];
+    const double L2 = lengths[1];
+    const double L3 = lengths[2];
+    const double L4 = lengths[3];
+
+    // Check opposite sides: L1 vs L3, L2 vs L4
+    const double mean13 = (L1 + L3) / 2.0;
+    const double mean24 = (L2 + L4) / 2.0;
+
+    if (mean13 <= 0.0 || mean24 <= 0.0) {
+        return 0.0;
+    }
+
+    const double error13 = std::abs(L1 - L3) / mean13;
+    const double error24 = std::abs(L2 - L4) / mean24;
+    const double totalError = error13 + error24;
+
+    // Convert to affinity with BALANCED strictness (1.5 multiplier)
+    return std::max(0.0, 1.0 - totalError * 1.5);
+}
+
+// Hexagon affinity: side and angle consistency
+double calculateHexagonAffinity(const std::vector<cv::Point>& approx) {
+    if (approx.size() != 6) {
+        return 0.0;
+    }
+
+    const double sideVar = calculateSideLengthVariance(approx);
+    const double angleVar = calculateAngleVariance(approx);
+
+    const double sideScore = clamp01(1.0 - sideVar * 2.0);
+    const double angleScore = clamp01(1.0 - angleVar * 2.0);
+
+    // Multiplicative: both must be good
+    return sideScore * angleScore;
 }
 }
 
@@ -182,90 +308,107 @@ ShapeQualityAnalyzer::QualityScore ShapeQualityAnalyzer::evaluate(
     }
 
     const double perimeter = cv::arcLength(candidate.contour, true);
+    if (perimeter <= 0.0) {
+        return quality;
+    }
 
-    // Calculate solidity instead of fillRatio for rotation-invariant "neatness" metric
-    const double solidity = calculateSolidity(candidate.contour, area);
-    double score = Params::WEIGHT_SOLIDITY * solidity;
+    // ========================================================================
+    // STEP A: CALCULATE ALL BASE METRICS UPFRONT
+    // ========================================================================
+    // These metrics are used as both positive signals (for their "home" shape)
+    // and negative penalties (for rival shapes)
+
+    // Approximated polygon for shape-specific calculations
+    std::vector<cv::Point> approx;
+    cv::approxPolyDP(candidate.contour, approx, Params::POLYGON_EPSILON * perimeter, true);
+
+    // Base quality metrics (apply to all shapes)
+    const double solidityScore = calculateSolidityScore(candidate.contour, area);
+    const double lineWavinessScore = calculateLineWavinessScore(candidate.contour, approx, perimeter);
+
+    // Circle-specific metrics
+    const double circularityScore = calculateCircularityScore(area, perimeter);
+    const double ellipseAspectRatioScore = calculateEllipseAspectRatioScore(candidate.contour);
+
+    // Polygon-specific affinity metrics
+    const double triangleAffinity = calculateTriangleAffinity(approx);
+    const double squareAffinity = calculateSquareAffinity(approx);
+    const double rectangleAffinity = calculateRectangleAffinity(approx);
+    const double hexagonAffinity = calculateHexagonAffinity(approx);
+
+    // ========================================================================
+    // STEP B: APPLY POSITIVE/NEGATIVE ARCHITECTURE
+    // ========================================================================
+    // Each shape uses its positive metrics and is penalized by rival metrics
+
+    double score = 0.0;
 
     switch (classification.type) {
     case ShapeClassifier::ShapeType::Circle: {
-        cv::Point2f center;
-        float radius = 0.0f;
-        cv::minEnclosingCircle(candidate.contour, center, radius);
-        if (radius > 0.0f) {
-            // 1. Circularity metric (4πA / P²) with non-linear penalty
-            const double circularity = (4.0 * CV_PI * area) / (perimeter * perimeter + 1e-6);
-            const double circularityScore = clamp01(std::pow(circularity, 2.0)); // Quadratic penalty
+        // POSITIVE: Circle-specific metrics
+        const double positiveScore = (circularityScore + ellipseAspectRatioScore) / 2.0;
 
-            // 2. Mean deviation from ideal circle radius
-            double sumDeviation = 0.0;
-            for (const auto& pt : candidate.contour) {
-                const double dist = cv::norm(cv::Point2f(static_cast<float>(pt.x), static_cast<float>(pt.y)) - center);
-                sumDeviation += std::abs(dist - radius);
-            }
-            const double meanDeviation = sumDeviation / static_cast<double>(candidate.contour.size());
-            const double deviationRatio = meanDeviation / (radius + 1e-6);
-            const double deviationScore = clamp01(1.0 - deviationRatio * 2.0); // More aggressive penalty
+        // NEGATIVE: Polygon affinity is a penalty for circles
+        const double negativePenalty = std::max({triangleAffinity, squareAffinity, rectangleAffinity, hexagonAffinity});
 
-            // 3. Ellipse aspect ratio (new metric)
-            double ellipseScore = 0.0;
-            if (candidate.contour.size() >= 5) { // fitEllipse requires at least 5 points
-                try {
-                    const cv::RotatedRect ellipse = cv::fitEllipse(candidate.contour);
-                    const float majorAxis = std::max(ellipse.size.width, ellipse.size.height);
-                    const float minorAxis = std::min(ellipse.size.width, ellipse.size.height);
-
-                    if (majorAxis > 0.0f) {
-                        const double aspectRatio = static_cast<double>(minorAxis) / static_cast<double>(majorAxis);
-                        // Perfect circle has aspect ratio of 1.0, apply cubic penalty for deviation
-                        ellipseScore = clamp01(std::pow(aspectRatio, 3.0));
-                    }
-                } catch (...) {
-                    // fitEllipse can throw if points are collinear, use default score
-                    ellipseScore = 0.0;
-                }
-            }
-
-            // Weighted combination of circle metrics
-            score += Params::WEIGHT_CIRCULARITY * circularityScore +
-                     Params::WEIGHT_DEVIATION * deviationScore +
-                     Params::WEIGHT_ELLIPSE_ASPECT * ellipseScore;
-        }
+        // Final score: positive * (1 - negative)
+        score = positiveScore * (1.0 - negativePenalty);
         break;
     }
-    case ShapeClassifier::ShapeType::Triangle:
-    case ShapeClassifier::ShapeType::Square:
-    case ShapeClassifier::ShapeType::Rectangle:
+    case ShapeClassifier::ShapeType::Triangle: {
+        // POSITIVE: Triangle affinity, waviness, solidity
+        const double positiveScore = triangleAffinity * lineWavinessScore * solidityScore;
+
+        // NEGATIVE: Circularity is a penalty (directly addresses "Bad Circle -> Triangle" problem)
+        const double negativePenalty = circularityScore;
+
+        // Final score
+        score = positiveScore * (1.0 - negativePenalty);
+        break;
+    }
+    case ShapeClassifier::ShapeType::Square: {
+        // POSITIVE: Square affinity, waviness, solidity
+        const double positiveScore = squareAffinity * lineWavinessScore * solidityScore;
+
+        // NEGATIVE: Circularity is a penalty
+        const double negativePenalty = circularityScore;
+
+        // Final score
+        score = positiveScore * (1.0 - negativePenalty);
+        break;
+    }
+    case ShapeClassifier::ShapeType::Rectangle: {
+        // POSITIVE: Rectangle affinity, waviness, solidity
+        const double positiveScore = rectangleAffinity * lineWavinessScore * solidityScore;
+
+        // NEGATIVE: Circularity is a penalty
+        const double negativePenalty = circularityScore;
+
+        // Final score
+        score = positiveScore * (1.0 - negativePenalty);
+        break;
+    }
     case ShapeClassifier::ShapeType::Hexagon: {
-        // Use approxPolyDP to find the idealized polygon vertices
-        std::vector<cv::Point> approx;
-        cv::approxPolyDP(candidate.contour, approx, Params::POLYGON_EPSILON * perimeter, true);
-        if (approx.size() >= 3) {
-            // 1. Geometric accuracy: measure side length and angle consistency of idealized polygon
-            const double sideScore = clamp01(1.0 - sideLengthVariance(approx) * 2.0); // More aggressive
-            const double angleScore = clamp01(1.0 - angleVariance(approx) * 2.0);     // More aggressive
+        // POSITIVE: Hexagon affinity, waviness, solidity
+        const double positiveScore = hexagonAffinity * lineWavinessScore * solidityScore;
 
-            // 2. Line straightness: measure how well the original contour follows the idealized polygon
-            const double straightnessScore = calculateLineStraightness(candidate.contour, approx, perimeter);
+        // NEGATIVE: Circularity is a penalty
+        const double negativePenalty = circularityScore;
 
-            // Weighted combination: geometry, straightness, and solidity
-            score += Params::WEIGHT_SIDE_VARIANCE * sideScore +
-                     Params::WEIGHT_ANGLE_VARIANCE * angleScore +
-                     Params::WEIGHT_STRAIGHTNESS * straightnessScore;
-        }
+        // Final score
+        score = positiveScore * (1.0 - negativePenalty);
         break;
     }
     default:
-        score += Params::SCORE_UNKNOWN_PENALTY;
+        score = Params::SCORE_UNKNOWN_PENALTY;
         break;
     }
 
+    // Clamp and convert to percentage
     score = clamp01(score);
     quality.score = score * 100.0;
 
-    // REMOVED: Score rounding for precise scoring
-    // quality.score = std::ceil(quality.score / Params::SCORE_ROUNDING_INTERVAL) * Params::SCORE_ROUNDING_INTERVAL;
-
+    // Assign grade based on thresholds
     if (quality.score >= Params::GRADE_EXCELLENT) {
         quality.grade = "Excellent";
     } else if (quality.score >= Params::GRADE_VERY_GOOD) {
