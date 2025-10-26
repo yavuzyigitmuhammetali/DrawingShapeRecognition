@@ -125,7 +125,7 @@ Two executables are produced:
 - Buse Yüsra Köse
 - Serdar Sarı
 - Taha Yiğit Göksu
-- Muhammed Ali Yavuzyiğit
+- Muhammet Ali Yavuzyiğit
 
 ## 📚 Course
 - **Course:** SWE 417 — Digital Image Processing

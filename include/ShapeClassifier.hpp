@@ -32,4 +32,5 @@ public:
     };
 
     Classification classify(const ShapeSegmenter::Candidate& candidate) const;
+    static std::string toString(ShapeType type);
 };

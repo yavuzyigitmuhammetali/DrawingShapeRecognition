@@ -1,11 +1,67 @@
 #include "AppController.hpp"
 
+#include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
+#include <limits>
+#include <map>
+#include <numeric>
 #include <sstream>
 
 using Params = AppController::Parameters;
+
+namespace {
+
+cv::Point computeCentroid(const ShapeSegmenter::Candidate& candidate) {
+    const cv::Moments moments = cv::moments(candidate.contour);
+    if (moments.m00 != 0.0) {
+        return {
+            static_cast<int>(moments.m10 / moments.m00),
+            static_cast<int>(moments.m01 / moments.m00)
+        };
+    }
+
+    return {
+        candidate.boundingBox.x + candidate.boundingBox.width / 2,
+        candidate.boundingBox.y + candidate.boundingBox.height / 2
+    };
+}
+
+cv::Scalar colorForShape(ShapeClassifier::ShapeType type) {
+    switch (type) {
+    case ShapeClassifier::ShapeType::Circle:
+        return Params::COLOR_CIRCLE;
+    case ShapeClassifier::ShapeType::Triangle:
+        return Params::COLOR_TRIANGLE;
+    case ShapeClassifier::ShapeType::Square:
+        return Params::COLOR_SQUARE;
+    case ShapeClassifier::ShapeType::Rectangle:
+        return Params::COLOR_RECTANGLE;
+    case ShapeClassifier::ShapeType::Hexagon:
+        return Params::COLOR_HEXAGON;
+    default:
+        return Params::COLOR_UNKNOWN;
+    }
+}
+
+std::string buildAnnotationText(const ShapeClassifier::Classification& classification,
+                                const ShapeQualityAnalyzer::QualityScore& quality) {
+    std::ostringstream label;
+    label << classification.label << " | " << std::fixed << std::setprecision(1)
+          << quality.displayScore << "% (" << quality.grade << ")";
+    return label.str();
+}
+
+double euclideanDistance(const cv::Point& a, const cv::Point& b) {
+    const double dx = static_cast<double>(a.x - b.x);
+    const double dy = static_cast<double>(a.y - b.y);
+    return std::hypot(dx, dy);
+}
+
+} // namespace
 
 AppController::AppController()
     : running_(false), nextTrackerId_(0) {}
@@ -131,51 +187,75 @@ void AppController::processFrame(const cv::Mat& frame,
                                  cv::Mat& birdseyeView,
                                  bool& hasBirdseye) {
     auto perspectiveResult = perspectiveTransformer_.process(frame);
-
-    cameraView = perspectiveResult.annotatedFrame.empty()
-                 ? frame.clone()
-                 : perspectiveResult.annotatedFrame.clone();
-
-    if (!cameraView.empty() && !perspectiveResult.originalMask.empty()) {
-        if (cameraView.channels() == 1) {
-            cv::cvtColor(cameraView, cameraView, cv::COLOR_GRAY2BGR);
-        }
-
-        cv::Mat outsideMask;
-        cv::bitwise_not(perspectiveResult.originalMask, outsideMask);
-        cameraView.setTo(Params::COLOR_BACKGROUND_VERY_DARK, outsideMask);
-
-        if (!perspectiveResult.paperOutlineImage.empty()) {
-            std::vector<cv::Point> polygon;
-            polygon.reserve(perspectiveResult.paperOutlineImage.size());
-            for (const auto& pt : perspectiveResult.paperOutlineImage) {
-                polygon.emplace_back(cvRound(pt.x), cvRound(pt.y));
-            }
-            cv::polylines(cameraView, std::vector<std::vector<cv::Point>>{polygon},
-                          true, Params::COLOR_GREEN, Params::BBOX_THICKNESS);
-        }
-    }
+    prepareCameraView(frame, perspectiveResult, cameraView);
 
     hasBirdseye = perspectiveResult.success;
     if (!hasBirdseye) {
-        cv::putText(cameraView,
-                    "Markerleri gorunecek sekilde yerlestirin.",
-                    cv::Point(Params::TEXT_MARGIN_X, Params::TEXT_MARGIN_Y_TOP),
-                    cv::FONT_HERSHEY_SIMPLEX,
-                    Params::FONT_SCALE_NORMAL,
-                    Params::COLOR_ORANGE,
-                    Params::FONT_THICKNESS_BOLD);
-        // No ArUco detected - let OutputManager handle recording state
+        renderMarkerPrompt(cameraView);
         outputManager_.processFrame(cameraView, false);
         return;
     }
 
-    birdseyeView = perspectiveResult.warped.clone();
-    if (birdseyeView.empty()) {
-        hasBirdseye = false;
+    hasBirdseye = prepareBirdseyeView(perspectiveResult, birdseyeView);
+    if (!hasBirdseye) {
         outputManager_.processFrame(cameraView, false);
         return;
     }
+
+    std::vector<ShapeSegmenter::Candidate> candidates;
+    std::vector<ShapeClassifier::Classification> classifications;
+    std::vector<ShapeQualityAnalyzer::QualityScore> qualities;
+
+    analyzeDetections(perspectiveResult, candidates, classifications, qualities);
+    updateTrackers(candidates, classifications, qualities);
+
+    std::vector<ShapeSegmenter::Candidate> stabilizedCandidates;
+    std::vector<ShapeClassifier::Classification> stabilizedClassifications;
+    std::vector<ShapeQualityAnalyzer::QualityScore> stabilizedQualities;
+    collectStabilizedDetections(stabilizedCandidates, stabilizedClassifications, stabilizedQualities);
+
+    annotateDetections(birdseyeView, stabilizedCandidates, stabilizedClassifications, stabilizedQualities);
+    outputManager_.processFrame(birdseyeView, true);
+}
+
+void AppController::prepareCameraView(const cv::Mat& frame,
+                                      const PerspectiveTransformer::Result& perspectiveResult,
+                                      cv::Mat& cameraView) const {
+    cameraView = perspectiveResult.annotatedFrame.empty()
+                     ? frame.clone()
+                     : perspectiveResult.annotatedFrame.clone();
+
+    if (cameraView.empty() || perspectiveResult.originalMask.empty()) {
+        return;
+    }
+
+    if (cameraView.channels() == 1) {
+        cv::cvtColor(cameraView, cameraView, cv::COLOR_GRAY2BGR);
+    }
+
+    cv::Mat outsideMask;
+    cv::bitwise_not(perspectiveResult.originalMask, outsideMask);
+    cameraView.setTo(Params::COLOR_BACKGROUND_VERY_DARK, outsideMask);
+
+    if (!perspectiveResult.paperOutlineImage.empty()) {
+        std::vector<cv::Point> polygon;
+        polygon.reserve(perspectiveResult.paperOutlineImage.size());
+        for (const auto& pt : perspectiveResult.paperOutlineImage) {
+            polygon.emplace_back(cvRound(pt.x), cvRound(pt.y));
+        }
+        cv::polylines(cameraView, std::vector<std::vector<cv::Point>>{polygon},
+                      true, Params::COLOR_GREEN, Params::BBOX_THICKNESS);
+    }
+}
+
+bool AppController::prepareBirdseyeView(const PerspectiveTransformer::Result& perspectiveResult,
+                                        cv::Mat& birdseyeView) const {
+    if (!perspectiveResult.success || perspectiveResult.warped.empty()) {
+        birdseyeView.release();
+        return false;
+    }
+
+    birdseyeView = perspectiveResult.warped.clone();
 
     if (birdseyeView.channels() == 1) {
         cv::cvtColor(birdseyeView, birdseyeView, cv::COLOR_GRAY2BGR);
@@ -187,131 +267,139 @@ void AppController::processFrame(const cv::Mat& frame,
         birdseyeView.setTo(Params::COLOR_BACKGROUND_DARK, outsideMask);
     }
 
-    auto candidates = segmenter_.segment(perspectiveResult.warped, perspectiveResult.warpedMask);
-    std::vector<ShapeClassifier::Classification> classifications;
-    std::vector<ShapeQualityAnalyzer::QualityScore> qualities;
+    return true;
+}
 
+void AppController::renderMarkerPrompt(cv::Mat& cameraView) const {
+    if (cameraView.empty()) {
+        return;
+    }
+
+    cv::putText(cameraView,
+                "Markerleri gorunecek sekilde yerlestirin.",
+                cv::Point(Params::TEXT_MARGIN_X, Params::TEXT_MARGIN_Y_TOP),
+                cv::FONT_HERSHEY_SIMPLEX,
+                Params::FONT_SCALE_NORMAL,
+                Params::COLOR_ORANGE,
+                Params::FONT_THICKNESS_BOLD);
+}
+
+void AppController::analyzeDetections(const PerspectiveTransformer::Result& perspectiveResult,
+                                      std::vector<ShapeSegmenter::Candidate>& candidates,
+                                      std::vector<ShapeClassifier::Classification>& classifications,
+                                      std::vector<ShapeQualityAnalyzer::QualityScore>& qualities) {
+    candidates = segmenter_.segment(perspectiveResult.warped, perspectiveResult.warpedMask);
+
+    classifications.clear();
+    qualities.clear();
     classifications.reserve(candidates.size());
     qualities.reserve(candidates.size());
 
     for (const auto& candidate : candidates) {
-        auto classification = classifier_.classify(candidate);
-        auto quality = qualityAnalyzer_.evaluate(candidate, classification);
+        const auto classification = classifier_.classify(candidate);
+        const auto quality = qualityAnalyzer_.evaluate(candidate, classification);
 
         classifications.push_back(classification);
         qualities.push_back(quality);
-
         outputManager_.logDetection(candidate, classification, quality);
     }
+}
 
-    // --- Object Tracking and Stabilization ---
+void AppController::updateTrackers(
+    const std::vector<ShapeSegmenter::Candidate>& candidates,
+    const std::vector<ShapeClassifier::Classification>& classifications,
+    const std::vector<ShapeQualityAnalyzer::QualityScore>& qualities) {
 
-    // Calculate centroids for all candidates
     std::vector<cv::Point> candidateCentroids;
     candidateCentroids.reserve(candidates.size());
-    for (const auto& candidate : candidates) {
-        cv::Moments m = cv::moments(candidate.contour);
-        cv::Point centroid;
-        if (m.m00 != 0) {
-            centroid.x = static_cast<int>(m.m10 / m.m00);
-            centroid.y = static_cast<int>(m.m01 / m.m00);
-        } else {
-            centroid = cv::Point(candidate.boundingBox.x + candidate.boundingBox.width / 2,
-                                candidate.boundingBox.y + candidate.boundingBox.height / 2);
-        }
-        candidateCentroids.push_back(centroid);
-    }
+    std::transform(candidates.begin(), candidates.end(), std::back_inserter(candidateCentroids),
+                   [](const ShapeSegmenter::Candidate& candidate) { return computeCentroid(candidate); });
 
-    // Track which candidates and trackers have been matched
     std::vector<bool> candidateMatched(candidates.size(), false);
     std::vector<bool> trackerMatched(trackers_.size(), false);
 
-    // 1. Match existing trackers to new candidates
-    for (size_t i = 0; i < trackers_.size(); ++i) {
+    for (size_t trackerIdx = 0; trackerIdx < trackers_.size(); ++trackerIdx) {
         double minDistance = std::numeric_limits<double>::max();
         int bestCandidateIdx = -1;
 
-        // Find the closest unmatched candidate
-        for (size_t j = 0; j < candidates.size(); ++j) {
-            if (candidateMatched[j]) {
+        for (size_t candidateIdx = 0; candidateIdx < candidates.size(); ++candidateIdx) {
+            if (candidateMatched[candidateIdx]) {
                 continue;
             }
 
-            double dx = candidateCentroids[j].x - trackers_[i].lastCentroid.x;
-            double dy = candidateCentroids[j].y - trackers_[i].lastCentroid.y;
-            double distance = std::sqrt(dx * dx + dy * dy);
-
+            const double distance = euclideanDistance(candidateCentroids[candidateIdx],
+                                                      trackers_[trackerIdx].lastCentroid);
             if (distance < minDistance) {
                 minDistance = distance;
-                bestCandidateIdx = static_cast<int>(j);
+                bestCandidateIdx = static_cast<int>(candidateIdx);
             }
         }
 
-        // If we found a close match, update the tracker
         if (bestCandidateIdx >= 0 && minDistance < Params::STABILIZATION_TRACKING_MAX_DISTANCE) {
-            trackers_[i].update(candidates[bestCandidateIdx],
-                              classifications[bestCandidateIdx],
-                              qualities[bestCandidateIdx]);
-            trackerMatched[i] = true;
+            trackers_[trackerIdx].update(candidates[bestCandidateIdx],
+                                         classifications[bestCandidateIdx],
+                                         qualities[bestCandidateIdx]);
+            trackerMatched[trackerIdx] = true;
             candidateMatched[bestCandidateIdx] = true;
         }
     }
 
-    // 2. Cleanup stale trackers (iterate backwards for safe removal)
-    for (int i = static_cast<int>(trackers_.size()) - 1; i >= 0; --i) {
-        if (!trackerMatched[i]) {
-            trackers_[i].framesUnseen++;
-            if (trackers_[i].framesUnseen > Params::STABILIZATION_TRACKING_MAX_UNSEEN_FRAMES) {
-                trackers_.erase(trackers_.begin() + i);
-            }
+    for (int trackerIdx = static_cast<int>(trackers_.size()) - 1; trackerIdx >= 0; --trackerIdx) {
+        if (trackerMatched[trackerIdx]) {
+            continue;
+        }
+
+        auto& tracker = trackers_[trackerIdx];
+        tracker.framesUnseen++;
+        if (tracker.framesUnseen > Params::STABILIZATION_TRACKING_MAX_UNSEEN_FRAMES) {
+            trackers_.erase(trackers_.begin() + trackerIdx);
         }
     }
 
-    // 3. Create new trackers for unmatched candidates
-    for (size_t i = 0; i < candidates.size(); ++i) {
-        if (!candidateMatched[i]) {
-            StabilizedShapeTracker newTracker;
-            newTracker.id = nextTrackerId_++;
-            newTracker.update(candidates[i], classifications[i], qualities[i]);
-            trackers_.push_back(newTracker);
+    for (size_t candidateIdx = 0; candidateIdx < candidates.size(); ++candidateIdx) {
+        if (candidateMatched[candidateIdx]) {
+            continue;
         }
+
+        StabilizedShapeTracker tracker;
+        tracker.id = nextTrackerId_++;
+        tracker.update(candidates[candidateIdx], classifications[candidateIdx], qualities[candidateIdx]);
+        trackers_.push_back(tracker);
     }
+}
 
-    // 4. Prepare stabilized data for annotation
-    std::vector<ShapeSegmenter::Candidate> stabilizedCandidates;
-    std::vector<ShapeClassifier::Classification> stabilizedClassifications;
-    std::vector<ShapeQualityAnalyzer::QualityScore> stabilizedQualities;
+void AppController::collectStabilizedDetections(
+    std::vector<ShapeSegmenter::Candidate>& candidates,
+    std::vector<ShapeClassifier::Classification>& classifications,
+    std::vector<ShapeQualityAnalyzer::QualityScore>& qualities) const {
 
-    stabilizedCandidates.reserve(trackers_.size());
-    stabilizedClassifications.reserve(trackers_.size());
-    stabilizedQualities.reserve(trackers_.size());
+    candidates.clear();
+    classifications.clear();
+    qualities.clear();
 
-    for (auto& tracker : trackers_) {
-        StabilizedResult stabilized = tracker.getStabilizedResult(this);
+    candidates.reserve(trackers_.size());
+    classifications.reserve(trackers_.size());
+    qualities.reserve(trackers_.size());
 
-        // Add the tracker's last candidate
-        stabilizedCandidates.push_back(tracker.lastCandidate);
+    for (const auto& tracker : trackers_) {
+        const StabilizedResult stabilized = tracker.getStabilizedResult(this);
 
-        // Create classification from stabilized result
-        ShapeClassifier::Classification stabilizedClass;
-        stabilizedClass.type = stabilized.type;
-        stabilizedClass.label = stabilized.label;
-        stabilizedClass.confidence = 0.0; // Not used in annotation
-        stabilizedClassifications.push_back(stabilizedClass);
+        candidates.push_back(tracker.lastCandidate);
 
-        // Create quality from stabilized result
-        ShapeQualityAnalyzer::QualityScore stabilizedQuality;
-        stabilizedQuality.systemScore = stabilized.averageScore;
-        stabilizedQuality.displayScore = std::ceil(stabilized.averageScore / 10.0) * 10.0;
-        stabilizedQuality.grade = stabilized.grade;
-        stabilizedQualities.push_back(stabilizedQuality);
+        ShapeClassifier::Classification classification;
+        classification.type = stabilized.type;
+        classification.label = ShapeClassifier::toString(stabilized.type);
+        classification.confidence = 0.0;
+        classifications.push_back(classification);
+
+        const double averageScore = std::max(0.0, stabilized.averageScore);
+
+        ShapeQualityAnalyzer::QualityScore quality;
+        quality.systemScore = averageScore;
+        quality.displayScore = std::ceil(averageScore / 10.0) * 10.0;
+        quality.grade = stabilized.grade;
+        qualities.push_back(quality);
     }
-
-    // 5. Annotate using the stabilized results
-    annotateDetections(birdseyeView, stabilizedCandidates, stabilizedClassifications, stabilizedQualities);
-
-    // ArUco detected successfully - send birdseye view to OutputManager
-    outputManager_.processFrame(birdseyeView, true);
 }
 
 void AppController::annotateDetections(
@@ -325,38 +413,16 @@ void AppController::annotateDetections(
         const auto& classification = classifications[i];
         const auto& quality = qualities[i];
 
-        cv::Scalar color;
-        switch (classification.type) {
-        case ShapeClassifier::ShapeType::Circle:
-            color = Params::COLOR_CIRCLE;
-            break;
-        case ShapeClassifier::ShapeType::Triangle:
-            color = Params::COLOR_TRIANGLE;
-            break;
-        case ShapeClassifier::ShapeType::Square:
-            color = Params::COLOR_SQUARE;
-            break;
-        case ShapeClassifier::ShapeType::Rectangle:
-            color = Params::COLOR_RECTANGLE;
-            break;
-        case ShapeClassifier::ShapeType::Hexagon:
-            color = Params::COLOR_HEXAGON;
-            break;
-        default:
-            color = Params::COLOR_UNKNOWN;
-            break;
-        }
+        const cv::Scalar color = colorForShape(classification.type);
 
         cv::rectangle(frame, candidate.boundingBox, color, Params::BBOX_THICKNESS);
         cv::drawContours(frame, std::vector<std::vector<cv::Point>>{candidate.contour}, -1, color,
                          Params::BBOX_THICKNESS);
 
-        std::ostringstream label;
-        label << classification.label << " | " << std::fixed << std::setprecision(1)
-              << quality.displayScore << "% (" << quality.grade << ")";
+        const std::string label = buildAnnotationText(classification, quality);
 
         int baseline = 0;
-        cv::Size textSize = cv::getTextSize(label.str(), cv::FONT_HERSHEY_SIMPLEX,
+        cv::Size textSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX,
                                             Params::FONT_SCALE_SMALL, Params::FONT_THICKNESS, &baseline);
         cv::Rect textBg(candidate.boundingBox.x,
                         std::max(candidate.boundingBox.y - textSize.height - (2 * Params::TEXT_PADDING), 0),
@@ -364,7 +430,7 @@ void AppController::annotateDetections(
                         textSize.height + Params::TEXT_PADDING + baseline);
 
         cv::rectangle(frame, textBg, cv::Scalar(0, 0, 0), cv::FILLED);
-        cv::putText(frame, label.str(),
+        cv::putText(frame, label,
                     cv::Point(textBg.x + Params::TEXT_PADDING,
                               textBg.y + textBg.height - Params::TEXT_BASELINE_OFFSET),
                     cv::FONT_HERSHEY_SIMPLEX,
@@ -460,31 +526,16 @@ void AppController::StabilizedShapeTracker::update(
     const ShapeClassifier::Classification& classification,
     const ShapeQualityAnalyzer::QualityScore& quality) {
 
-    // Calculate centroid
-    cv::Moments m = cv::moments(candidate.contour);
-    if (m.m00 != 0) {
-        lastCentroid.x = static_cast<int>(m.m10 / m.m00);
-        lastCentroid.y = static_cast<int>(m.m01 / m.m00);
-    } else {
-        lastCentroid = cv::Point(candidate.boundingBox.x + candidate.boundingBox.width / 2,
-                                  candidate.boundingBox.y + candidate.boundingBox.height / 2);
-    }
+    lastCentroid = computeCentroid(candidate);
 
-    // Update history
-    ClassificationHistoryEntry entry;
-    entry.type = classification.type;
-    entry.systemScore = quality.systemScore;
+    ClassificationHistoryEntry entry{classification.type, quality.systemScore};
     history.push_back(entry);
 
-    // Maintain history size
     while (history.size() > static_cast<size_t>(Params::STABILIZATION_WINDOW_SIZE)) {
         history.pop_front();
     }
 
-    // Store last candidate for rendering
     lastCandidate = candidate;
-
-    // Reset unseen counter
     framesUnseen = 0;
 }
 
@@ -501,13 +552,11 @@ AppController::StabilizedResult AppController::StabilizedShapeTracker::getStabil
         return result;
     }
 
-    // Group history by ShapeType and collect scores
     std::map<ShapeClassifier::ShapeType, std::vector<double>> scoresByType;
     for (const auto& entry : history) {
         scoresByType[entry.type].push_back(entry.systemScore);
     }
 
-    // Calculate average score for each ShapeType
     ShapeClassifier::ShapeType bestType = ShapeClassifier::ShapeType::Unknown;
     double bestAverageScore = -1.0;
 
@@ -516,11 +565,8 @@ AppController::StabilizedResult AppController::StabilizedShapeTracker::getStabil
             continue;
         }
 
-        double sum = 0.0;
-        for (double score : scores) {
-            sum += score;
-        }
-        double averageScore = sum / scores.size();
+        const double total = std::accumulate(scores.begin(), scores.end(), 0.0);
+        const double averageScore = total / static_cast<double>(scores.size());
 
         if (averageScore > bestAverageScore) {
             bestAverageScore = averageScore;
@@ -528,32 +574,9 @@ AppController::StabilizedResult AppController::StabilizedShapeTracker::getStabil
         }
     }
 
-    // Convert ShapeType to label
-    std::string label = "Unknown";
-    switch (bestType) {
-    case ShapeClassifier::ShapeType::Circle:
-        label = "Circle";
-        break;
-    case ShapeClassifier::ShapeType::Triangle:
-        label = "Triangle";
-        break;
-    case ShapeClassifier::ShapeType::Square:
-        label = "Square";
-        break;
-    case ShapeClassifier::ShapeType::Rectangle:
-        label = "Rectangle";
-        break;
-    case ShapeClassifier::ShapeType::Hexagon:
-        label = "Hexagon";
-        break;
-    default:
-        label = "Unknown";
-        break;
-    }
-
     result.type = bestType;
     result.averageScore = bestAverageScore;
-    result.label = label;
+    result.label = ShapeClassifier::toString(bestType);
     result.grade = controller->getGradeFromScore(bestAverageScore);
 
     return result;

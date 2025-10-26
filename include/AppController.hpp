@@ -102,6 +102,23 @@ private:
                       cv::Mat& cameraView,
                       cv::Mat& birdseyeView,
                       bool& hasBirdseye);
+    void prepareCameraView(const cv::Mat& frame,
+                           const PerspectiveTransformer::Result& perspectiveResult,
+                           cv::Mat& cameraView) const;
+    bool prepareBirdseyeView(const PerspectiveTransformer::Result& perspectiveResult,
+                             cv::Mat& birdseyeView) const;
+    void renderMarkerPrompt(cv::Mat& cameraView) const;
+    void analyzeDetections(const PerspectiveTransformer::Result& perspectiveResult,
+                           std::vector<ShapeSegmenter::Candidate>& candidates,
+                           std::vector<ShapeClassifier::Classification>& classifications,
+                           std::vector<ShapeQualityAnalyzer::QualityScore>& qualities);
+    void updateTrackers(const std::vector<ShapeSegmenter::Candidate>& candidates,
+                        const std::vector<ShapeClassifier::Classification>& classifications,
+                        const std::vector<ShapeQualityAnalyzer::QualityScore>& qualities);
+    void collectStabilizedDetections(std::vector<ShapeSegmenter::Candidate>& candidates,
+                                     std::vector<ShapeClassifier::Classification>& classifications,
+                                     std::vector<ShapeQualityAnalyzer::QualityScore>& qualities) const;
+
     void annotateDetections(cv::Mat& frame,
                             const std::vector<ShapeSegmenter::Candidate>& candidates,
                             const std::vector<ShapeClassifier::Classification>& classifications,
