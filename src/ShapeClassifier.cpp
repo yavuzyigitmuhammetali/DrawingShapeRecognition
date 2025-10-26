@@ -113,27 +113,35 @@ ShapeClassifier::Classification ShapeClassifier::classify(const ShapeSegmenter::
     }
 
     if (vertexCount == 4) {
-        // Calculate affinities for both square and rectangle interpretations
-        const double squareAffinity = calculateSquareAffinity(approx);
-        const double rectangleAffinity = calculateRectangleAffinity(approx);
+        // Calculate all 4 side lengths
+        double L1 = cv::norm(approx[0] - approx[1]);
+        double L2 = cv::norm(approx[1] - approx[2]);
+        double L3 = cv::norm(approx[2] - approx[3]);
+        double L4 = cv::norm(approx[3] - approx[0]);
 
-        // Minimum threshold for a valid quadrilateral classification
-        constexpr double MIN_AFFINITY_THRESH = 0.6;
+        // Calculate average length of opposite side pairs
+        // This handles perspective distortion (e.g., 100x110x100x110 from a perfect 100x100 square)
+        double avgPair1 = (L1 + L3) / 2.0;
+        double avgPair2 = (L2 + L4) / 2.0;
 
-        // Choose the classification based on which affinity is stronger
-        if (squareAffinity > rectangleAffinity && squareAffinity > MIN_AFFINITY_THRESH) {
+        // Calculate aspect ratio of the averaged pairs
+        double oppositePairRatio = 0.0;
+        if (std::max(avgPair1, avgPair2) > 0) {
+            oppositePairRatio = std::min(avgPair1, avgPair2) / std::max(avgPair1, avgPair2);
+        }
+
+        // Tolerance threshold: 10% difference allowed for squares
+        // Example: 100/110 = 0.909 → Square, 100/130 = 0.769 → Rectangle
+        const double SQUARE_TOLERANCE_RATIO = 0.90;
+
+        if (oppositePairRatio > SQUARE_TOLERANCE_RATIO) {
             result.type = ShapeType::Square;
             result.label = "Square";
-            result.confidence = Params::CONFIDENCE_SQUARE * squareAffinity;
-        } else if (rectangleAffinity > MIN_AFFINITY_THRESH) {
+            result.confidence = Params::CONFIDENCE_SQUARE;
+        } else {
             result.type = ShapeType::Rectangle;
             result.label = "Rectangle";
-            result.confidence = Params::CONFIDENCE_RECTANGLE * rectangleAffinity;
-        } else {
-            // It's a poor quadrilateral, mark as generic
-            result.type = ShapeType::Unknown;
-            result.label = "Quadrilateral";
-            result.confidence = std::max(squareAffinity, rectangleAffinity);
+            result.confidence = Params::CONFIDENCE_RECTANGLE;
         }
         return result;
     }
