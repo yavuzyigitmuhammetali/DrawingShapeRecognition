@@ -8,7 +8,7 @@
 using Params = AppController::Parameters;
 
 AppController::AppController()
-    : running_(false) {}
+    : running_(false), nextTrackerId_(0) {}
 
 int AppController::run(int argc, char** argv) {
     if (!initialize(argc, argv)) {
@@ -204,7 +204,111 @@ void AppController::processFrame(const cv::Mat& frame,
         outputManager_.logDetection(candidate, classification, quality);
     }
 
-    annotateDetections(birdseyeView, candidates, classifications, qualities);
+    // --- Object Tracking and Stabilization ---
+
+    // Calculate centroids for all candidates
+    std::vector<cv::Point> candidateCentroids;
+    candidateCentroids.reserve(candidates.size());
+    for (const auto& candidate : candidates) {
+        cv::Moments m = cv::moments(candidate.contour);
+        cv::Point centroid;
+        if (m.m00 != 0) {
+            centroid.x = static_cast<int>(m.m10 / m.m00);
+            centroid.y = static_cast<int>(m.m01 / m.m00);
+        } else {
+            centroid = cv::Point(candidate.boundingBox.x + candidate.boundingBox.width / 2,
+                                candidate.boundingBox.y + candidate.boundingBox.height / 2);
+        }
+        candidateCentroids.push_back(centroid);
+    }
+
+    // Track which candidates and trackers have been matched
+    std::vector<bool> candidateMatched(candidates.size(), false);
+    std::vector<bool> trackerMatched(trackers_.size(), false);
+
+    // 1. Match existing trackers to new candidates
+    for (size_t i = 0; i < trackers_.size(); ++i) {
+        double minDistance = std::numeric_limits<double>::max();
+        int bestCandidateIdx = -1;
+
+        // Find the closest unmatched candidate
+        for (size_t j = 0; j < candidates.size(); ++j) {
+            if (candidateMatched[j]) {
+                continue;
+            }
+
+            double dx = candidateCentroids[j].x - trackers_[i].lastCentroid.x;
+            double dy = candidateCentroids[j].y - trackers_[i].lastCentroid.y;
+            double distance = std::sqrt(dx * dx + dy * dy);
+
+            if (distance < minDistance) {
+                minDistance = distance;
+                bestCandidateIdx = static_cast<int>(j);
+            }
+        }
+
+        // If we found a close match, update the tracker
+        if (bestCandidateIdx >= 0 && minDistance < Params::STABILIZATION_TRACKING_MAX_DISTANCE) {
+            trackers_[i].update(candidates[bestCandidateIdx],
+                              classifications[bestCandidateIdx],
+                              qualities[bestCandidateIdx]);
+            trackerMatched[i] = true;
+            candidateMatched[bestCandidateIdx] = true;
+        }
+    }
+
+    // 2. Cleanup stale trackers (iterate backwards for safe removal)
+    for (int i = static_cast<int>(trackers_.size()) - 1; i >= 0; --i) {
+        if (!trackerMatched[i]) {
+            trackers_[i].framesUnseen++;
+            if (trackers_[i].framesUnseen > Params::STABILIZATION_TRACKING_MAX_UNSEEN_FRAMES) {
+                trackers_.erase(trackers_.begin() + i);
+            }
+        }
+    }
+
+    // 3. Create new trackers for unmatched candidates
+    for (size_t i = 0; i < candidates.size(); ++i) {
+        if (!candidateMatched[i]) {
+            StabilizedShapeTracker newTracker;
+            newTracker.id = nextTrackerId_++;
+            newTracker.update(candidates[i], classifications[i], qualities[i]);
+            trackers_.push_back(newTracker);
+        }
+    }
+
+    // 4. Prepare stabilized data for annotation
+    std::vector<ShapeSegmenter::Candidate> stabilizedCandidates;
+    std::vector<ShapeClassifier::Classification> stabilizedClassifications;
+    std::vector<ShapeQualityAnalyzer::QualityScore> stabilizedQualities;
+
+    stabilizedCandidates.reserve(trackers_.size());
+    stabilizedClassifications.reserve(trackers_.size());
+    stabilizedQualities.reserve(trackers_.size());
+
+    for (auto& tracker : trackers_) {
+        StabilizedResult stabilized = tracker.getStabilizedResult(this);
+
+        // Add the tracker's last candidate
+        stabilizedCandidates.push_back(tracker.lastCandidate);
+
+        // Create classification from stabilized result
+        ShapeClassifier::Classification stabilizedClass;
+        stabilizedClass.type = stabilized.type;
+        stabilizedClass.label = stabilized.label;
+        stabilizedClass.confidence = 0.0; // Not used in annotation
+        stabilizedClassifications.push_back(stabilizedClass);
+
+        // Create quality from stabilized result
+        ShapeQualityAnalyzer::QualityScore stabilizedQuality;
+        stabilizedQuality.systemScore = stabilized.averageScore;
+        stabilizedQuality.displayScore = std::ceil(stabilized.averageScore / 10.0) * 10.0;
+        stabilizedQuality.grade = stabilized.grade;
+        stabilizedQualities.push_back(stabilizedQuality);
+    }
+
+    // 5. Annotate using the stabilized results
+    annotateDetections(birdseyeView, stabilizedCandidates, stabilizedClassifications, stabilizedQualities);
 
     // ArUco detected successfully - send birdseye view to OutputManager
     outputManager_.processFrame(birdseyeView, true);
@@ -249,7 +353,7 @@ void AppController::annotateDetections(
 
         std::ostringstream label;
         label << classification.label << " | " << std::fixed << std::setprecision(1)
-              << quality.score << "% (" << quality.grade << ")";
+              << quality.displayScore << "% (" << quality.grade << ")";
 
         int baseline = 0;
         cv::Size textSize = cv::getTextSize(label.str(), cv::FONT_HERSHEY_SIMPLEX,
@@ -334,4 +438,123 @@ int AppController::promptCameraSelection(const std::vector<int>& cameras) const 
 
         std::cout << "Gecersiz secim, tekrar deneyin." << std::endl;
     }
+}
+
+std::string AppController::getGradeFromScore(double score) const {
+    if (score >= ShapeQualityAnalyzer::Parameters::GRADE_EXCELLENT) {
+        return "Excellent";
+    } else if (score >= ShapeQualityAnalyzer::Parameters::GRADE_VERY_GOOD) {
+        return "Very Good";
+    } else if (score >= ShapeQualityAnalyzer::Parameters::GRADE_GOOD) {
+        return "Good";
+    } else if (score >= ShapeQualityAnalyzer::Parameters::GRADE_ACCEPTABLE) {
+        return "Acceptable";
+    } else {
+        return "Poor";
+    }
+}
+
+// StabilizedShapeTracker implementation
+void AppController::StabilizedShapeTracker::update(
+    const ShapeSegmenter::Candidate& candidate,
+    const ShapeClassifier::Classification& classification,
+    const ShapeQualityAnalyzer::QualityScore& quality) {
+
+    // Calculate centroid
+    cv::Moments m = cv::moments(candidate.contour);
+    if (m.m00 != 0) {
+        lastCentroid.x = static_cast<int>(m.m10 / m.m00);
+        lastCentroid.y = static_cast<int>(m.m01 / m.m00);
+    } else {
+        lastCentroid = cv::Point(candidate.boundingBox.x + candidate.boundingBox.width / 2,
+                                  candidate.boundingBox.y + candidate.boundingBox.height / 2);
+    }
+
+    // Update history
+    ClassificationHistoryEntry entry;
+    entry.type = classification.type;
+    entry.systemScore = quality.systemScore;
+    history.push_back(entry);
+
+    // Maintain history size
+    while (history.size() > static_cast<size_t>(Params::STABILIZATION_WINDOW_SIZE)) {
+        history.pop_front();
+    }
+
+    // Store last candidate for rendering
+    lastCandidate = candidate;
+
+    // Reset unseen counter
+    framesUnseen = 0;
+}
+
+AppController::StabilizedResult AppController::StabilizedShapeTracker::getStabilizedResult(
+    const AppController* controller) const {
+
+    StabilizedResult result;
+    result.type = ShapeClassifier::ShapeType::Unknown;
+    result.averageScore = 0.0;
+    result.label = "Unknown";
+    result.grade = "N/A";
+
+    if (history.empty()) {
+        return result;
+    }
+
+    // Group history by ShapeType and collect scores
+    std::map<ShapeClassifier::ShapeType, std::vector<double>> scoresByType;
+    for (const auto& entry : history) {
+        scoresByType[entry.type].push_back(entry.systemScore);
+    }
+
+    // Calculate average score for each ShapeType
+    ShapeClassifier::ShapeType bestType = ShapeClassifier::ShapeType::Unknown;
+    double bestAverageScore = -1.0;
+
+    for (const auto& [type, scores] : scoresByType) {
+        if (scores.empty()) {
+            continue;
+        }
+
+        double sum = 0.0;
+        for (double score : scores) {
+            sum += score;
+        }
+        double averageScore = sum / scores.size();
+
+        if (averageScore > bestAverageScore) {
+            bestAverageScore = averageScore;
+            bestType = type;
+        }
+    }
+
+    // Convert ShapeType to label
+    std::string label = "Unknown";
+    switch (bestType) {
+    case ShapeClassifier::ShapeType::Circle:
+        label = "Circle";
+        break;
+    case ShapeClassifier::ShapeType::Triangle:
+        label = "Triangle";
+        break;
+    case ShapeClassifier::ShapeType::Square:
+        label = "Square";
+        break;
+    case ShapeClassifier::ShapeType::Rectangle:
+        label = "Rectangle";
+        break;
+    case ShapeClassifier::ShapeType::Hexagon:
+        label = "Hexagon";
+        break;
+    default:
+        label = "Unknown";
+        break;
+    }
+
+    result.type = bestType;
+    result.averageScore = bestAverageScore;
+    result.label = label;
+    result.grade = controller->getGradeFromScore(bestAverageScore);
+
+    return result;
 }

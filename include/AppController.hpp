@@ -8,6 +8,8 @@
 #include "VideoSource.hpp"
 
 #include <opencv2/opencv.hpp>
+#include <deque>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -51,12 +53,49 @@ public:
         static constexpr int KEY_ESC = 27;
 
         static constexpr int MAX_CAMERA_SCAN = 10;
+
+        // Temporal stabilization for reducing classification flicker
+        static constexpr int STABILIZATION_WINDOW_SIZE = 30;
+        static constexpr double STABILIZATION_TRACKING_MAX_DISTANCE = 50.0;
+        static constexpr int STABILIZATION_TRACKING_MAX_UNSEEN_FRAMES = 15;
     };
 
     AppController();
     int run(int argc, char** argv);
 
 private:
+    // Stabilization history entry
+    struct ClassificationHistoryEntry {
+        ShapeClassifier::ShapeType type;
+        double systemScore;
+    };
+
+    // Stabilized result
+    struct StabilizedResult {
+        ShapeClassifier::ShapeType type;
+        double averageScore;
+        std::string label;
+        std::string grade;
+    };
+
+    // Object tracker for stabilization
+    class StabilizedShapeTracker {
+    public:
+        int id;
+        cv::Point lastCentroid;
+        int framesUnseen;
+        std::deque<ClassificationHistoryEntry> history;
+        ShapeSegmenter::Candidate lastCandidate;
+
+        StabilizedShapeTracker() : id(-1), lastCentroid(0, 0), framesUnseen(0) {}
+
+        void update(const ShapeSegmenter::Candidate& candidate,
+                   const ShapeClassifier::Classification& classification,
+                   const ShapeQualityAnalyzer::QualityScore& quality);
+
+        StabilizedResult getStabilizedResult(const AppController* controller) const;
+    };
+
     bool initialize(int argc, char** argv);
     void processStream();
     void processFrame(const cv::Mat& frame,
@@ -71,6 +110,9 @@ private:
     std::vector<int> detectAvailableCameras(int maxCameras = Parameters::MAX_CAMERA_SCAN) const;
     int promptCameraSelection(const std::vector<int>& cameras) const;
 
+    // Stabilization helper method
+    std::string getGradeFromScore(double score) const;
+
     VideoSource videoSource_;
     PerspectiveTransformer perspectiveTransformer_;
     ShapeSegmenter segmenter_;
@@ -78,4 +120,8 @@ private:
     ShapeQualityAnalyzer qualityAnalyzer_;
     OutputManager outputManager_;
     bool running_;
+
+    // Object tracking for stabilization
+    std::vector<StabilizedShapeTracker> trackers_;
+    int nextTrackerId_;
 };
