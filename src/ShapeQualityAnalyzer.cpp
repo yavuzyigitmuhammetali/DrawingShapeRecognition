@@ -380,9 +380,10 @@ ShapeQualityAnalyzer::QualityScore ShapeQualityAnalyzer::evaluate(
     // CALCULATE SCORES (NO PENALTIES)
     // ========================================================================
 
-    // Both scores are now identical - based purely on positive quality metrics
-    quality.displayScore = clamp01(positive_score) * 100.0;
-    quality.systemScore = quality.displayScore;
+    // systemScore: precise internal score for calculations
+    // displayScore: rounded to nearest 10 for user display and logging (91 -> 100, 90 -> 90)
+    quality.systemScore = clamp01(positive_score) * 100.0;
+    quality.displayScore = std::ceil(quality.systemScore / 10.0) * 10.0;
 
     // Assign grade based on the user-facing displayScore
     if (quality.displayScore >= Params::GRADE_EXCELLENT) {
