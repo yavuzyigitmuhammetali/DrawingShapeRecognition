@@ -6,8 +6,8 @@
 class ShapeQualityAnalyzer {
 public:
     struct QualityScore {
-        double displayScore = 0.0; // Quality score (0-100) shown to the user
-        double systemScore = 0.0;  // Quality score (0-100) for system use (currently identical to displayScore)
+        double displayScore = 0.0; // Quality score (0-100) shown to the user, rounded to nearest 10
+        double systemScore = 0.0;  // Precise quality score (0-100) for system use and calculations
         std::string grade = "N/A";
     };
 
@@ -24,7 +24,8 @@ public:
 
         // Scoring Architecture:
         //   - Scores based purely on positive quality metrics (no rival penalties)
-        //   - displayScore = systemScore = positive_score * 100
+        //   - systemScore = positive_score * 100 (precise)
+        //   - displayScore = ceil(systemScore / 10) * 10 (rounded to nearest 10)
     };
 
     QualityScore evaluate(const ShapeSegmenter::Candidate& candidate,
