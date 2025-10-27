@@ -32,6 +32,7 @@ private:
     void drawDetections(cv::Mat& image, const std::vector<DetectedShape>& shapes);
     void saveDetectionsToFile(const std::vector<DetectedShape>& shapes);
     void annotateSummary(cv::Mat& image, const std::vector<DetectedShape>& shapes);
+    std::string formatShapeLabel(const DetectedShape& shape, int precision = 2) const;
 
     cv::VideoCapture cap;
     std::string windowName{"Shape Detector - Original"};

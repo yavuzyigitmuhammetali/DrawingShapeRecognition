@@ -301,16 +301,22 @@ void ShapeDetector::drawDetections(cv::Mat& image, const std::vector<DetectedSha
 
         cv::rectangle(image, shape.boundingBox, cv::Scalar(0, 0, 255), 2);
 
-        std::stringstream labelStream;
-        labelStream << shape.type << " [" << std::fixed << std::setprecision(2)
-                    << shape.smoothness << "]";
-        const std::string label = labelStream.str();
-
+        const std::string label = formatShapeLabel(shape);
         cv::Point labelOrigin(shape.boundingBox.x,
                               std::max(0, shape.boundingBox.y - 5));
         cv::putText(image, label, labelOrigin, cv::FONT_HERSHEY_SIMPLEX, 0.5,
                     cv::Scalar(0, 0, 255), 1);
     }
+}
+
+std::string ShapeDetector::formatShapeLabel(const DetectedShape& shape, int precision) const {
+    std::ostringstream stream;
+    stream << shape.type;
+    if (shape.type != "Unknown") {
+        stream << " [" << std::fixed << std::setprecision(precision)
+               << shape.smoothness << "]";
+    }
+    return stream.str();
 }
 
 void ShapeDetector::annotateSummary(cv::Mat& image, const std::vector<DetectedShape>& shapes) {
@@ -395,10 +401,7 @@ void ShapeDetector::saveDetectionsToFile(const std::vector<DetectedShape>& shape
 
         outFile << "Shape #" << count++ << ":" << std::endl;
         outFile << "  Type          : " << shape.type << std::endl;
-
-        std::stringstream smoothStream;
-        smoothStream << std::fixed << std::setprecision(3) << shape.smoothness;
-        outFile << "  Smoothness    : " << smoothStream.str() << std::endl;
+        outFile << "  Label         : " << formatShapeLabel(shape, 3) << std::endl;
 
         outFile << "  Box (x,y,w,h) : [" << shape.boundingBox.x << ", "
                 << shape.boundingBox.y << ", " << shape.boundingBox.width << ", "
