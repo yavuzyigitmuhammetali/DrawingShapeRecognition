@@ -10,13 +10,13 @@
 #include <sstream>
 
 namespace {
-constexpr double kSigma = 0.33;
-constexpr double kMinPaperAreaRatio = 0.05;
-constexpr double kMinShapeAreaRatio = 0.0015;
-constexpr double kCircularityThreshold = 0.85;
-constexpr float kWarpWidth = 640.0F;
-constexpr float kWarpHeight = 480.0F;
-}  // namespace
+    constexpr double kSigma = 0.33;
+    constexpr double kMinPaperAreaRatio = 0.05;
+    constexpr double kMinShapeAreaRatio = 0.0015;
+    constexpr double kCircularityThreshold = 0.85;
+    constexpr float kWarpWidth = 640.0F;
+    constexpr float kWarpHeight = 480.0F;
+} // namespace
 
 ShapeDetector::ShapeDetector() {
     cap.open(0);
@@ -54,7 +54,7 @@ void ShapeDetector::run() {
     }
 }
 
-cv::Mat ShapeDetector::processFrame(const cv::Mat& frame) {
+cv::Mat ShapeDetector::processFrame(const cv::Mat &frame) {
     cv::Mat outputFrame = frame.clone();
 
     cv::Mat processedImage = preProcessImage(frame);
@@ -62,7 +62,7 @@ cv::Mat ShapeDetector::processFrame(const cv::Mat& frame) {
 
     std::vector<DetectedShape> allShapes;
     if (!paperContour.empty()) {
-        cv::drawContours(outputFrame, std::vector<std::vector<cv::Point>>{paperContour}, -1,
+        cv::drawContours(outputFrame, std::vector<std::vector<cv::Point> >{paperContour}, -1,
                          cv::Scalar(0, 255, 0), 3);
 
         cv::Mat warped = warpImage(frame, paperContour);
@@ -78,7 +78,7 @@ cv::Mat ShapeDetector::processFrame(const cv::Mat& frame) {
     return outputFrame;
 }
 
-cv::Mat ShapeDetector::preProcessImage(const cv::Mat& frame) {
+cv::Mat ShapeDetector::preProcessImage(const cv::Mat &frame) {
     cv::Mat gray, blurred, edges, dilated;
     cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
     cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 5, 0);
@@ -94,21 +94,21 @@ cv::Mat ShapeDetector::preProcessImage(const cv::Mat& frame) {
     return dilated;
 }
 
-std::vector<cv::Point> ShapeDetector::getLargestContour(const cv::Mat& processedImage,
+std::vector<cv::Point> ShapeDetector::getLargestContour(const cv::Mat &processedImage,
                                                         cv::Size originalFrameSize) {
-    std::vector<std::vector<cv::Point>> contours;
+    std::vector<std::vector<cv::Point> > contours;
     std::vector<cv::Vec4i> hierarchy;
     cv::findContours(processedImage, contours, hierarchy, cv::RETR_EXTERNAL,
                      cv::CHAIN_APPROX_SIMPLE);
 
     const double minPaperArea =
-        static_cast<double>(originalFrameSize.width) * originalFrameSize.height *
-        kMinPaperAreaRatio;
+            static_cast<double>(originalFrameSize.width) * originalFrameSize.height *
+            kMinPaperAreaRatio;
 
     double maxArea = 0.0;
     std::vector<cv::Point> largestContour;
 
-    for (const auto& contour : contours) {
+    for (const auto &contour: contours) {
         const double area = cv::contourArea(contour);
         if (area <= minPaperArea) {
             continue;
@@ -127,7 +127,7 @@ std::vector<cv::Point> ShapeDetector::getLargestContour(const cv::Mat& processed
     return largestContour;
 }
 
-std::vector<cv::Point> ShapeDetector::reOrderPoints(const std::vector<cv::Point>& points) {
+std::vector<cv::Point> ShapeDetector::reOrderPoints(const std::vector<cv::Point> &points) {
     if (points.size() != 4) {
         return {};
     }
@@ -138,7 +138,7 @@ std::vector<cv::Point> ShapeDetector::reOrderPoints(const std::vector<cv::Point>
     sumPoints.reserve(points.size());
     diffPoints.reserve(points.size());
 
-    for (const auto& pt : points) {
+    for (const auto &pt: points) {
         sumPoints.push_back(pt.x + pt.y);
         diffPoints.push_back(pt.x - pt.y);
     }
@@ -160,7 +160,7 @@ std::vector<cv::Point> ShapeDetector::reOrderPoints(const std::vector<cv::Point>
     return orderedPoints;
 }
 
-cv::Mat ShapeDetector::warpImage(const cv::Mat& frame, const std::vector<cv::Point>& points) {
+cv::Mat ShapeDetector::warpImage(const cv::Mat &frame, const std::vector<cv::Point> &points) {
     if (points.size() != 4) {
         return {};
     }
@@ -196,7 +196,7 @@ cv::Mat ShapeDetector::warpImage(const cv::Mat& frame, const std::vector<cv::Poi
     return warpedImage;
 }
 
-std::vector<DetectedShape> ShapeDetector::findShapes(const cv::Mat& warpedImage) {
+std::vector<DetectedShape> ShapeDetector::findShapes(const cv::Mat &warpedImage) {
     std::vector<DetectedShape> shapes;
     cv::Mat gray, blurred, binary;
 
@@ -209,14 +209,14 @@ std::vector<DetectedShape> ShapeDetector::findShapes(const cv::Mat& warpedImage)
     cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
     cv::morphologyEx(binary, binary, cv::MORPH_OPEN, kernel);
 
-    std::vector<std::vector<cv::Point>> contours;
+    std::vector<std::vector<cv::Point> > contours;
     cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
     const double warpedArea =
-        static_cast<double>(warpedImage.cols) * warpedImage.rows;
+            static_cast<double>(warpedImage.cols) * warpedImage.rows;
     const double minShapeArea = warpedArea * kMinShapeAreaRatio;
 
-    for (const auto& contour : contours) {
+    for (const auto &contour: contours) {
         const double area = cv::contourArea(contour);
         if (area < minShapeArea) {
             continue;
@@ -243,7 +243,7 @@ std::vector<DetectedShape> ShapeDetector::findShapes(const cv::Mat& warpedImage)
 
         const double approxPerimeter = cv::arcLength(approx, true);
         const double perimeterRatio =
-            approxPerimeter > 0.0 ? approxPerimeter / perimeter : 1.0;
+                approxPerimeter > 0.0 ? approxPerimeter / perimeter : 1.0;
 
         if (cornerCount == 3) {
             detected.type = "Triangle";
@@ -259,8 +259,8 @@ std::vector<DetectedShape> ShapeDetector::findShapes(const cv::Mat& warpedImage)
                     detected.type = "Triangle";
                 } else {
                     const float aspect =
-                        static_cast<float>(detected.boundingBox.width) /
-                        static_cast<float>(detected.boundingBox.height);
+                            static_cast<float>(detected.boundingBox.width) /
+                            static_cast<float>(detected.boundingBox.height);
                     if (aspect > 0.90F && aspect < 1.10F) {
                         detected.type = "Square";
                     } else {
@@ -293,8 +293,8 @@ std::vector<DetectedShape> ShapeDetector::findShapes(const cv::Mat& warpedImage)
     return shapes;
 }
 
-void ShapeDetector::drawDetections(cv::Mat& image, const std::vector<DetectedShape>& shapes) {
-    for (const auto& shape : shapes) {
+void ShapeDetector::drawDetections(cv::Mat &image, const std::vector<DetectedShape> &shapes) {
+    for (const auto &shape: shapes) {
         if (shape.type == "Unknown") {
             continue;
         }
@@ -309,21 +309,21 @@ void ShapeDetector::drawDetections(cv::Mat& image, const std::vector<DetectedSha
     }
 }
 
-std::string ShapeDetector::formatShapeLabel(const DetectedShape& shape, int precision) const {
+std::string ShapeDetector::formatShapeLabel(const DetectedShape &shape, int precision) const {
     std::ostringstream stream;
     stream << shape.type;
     if (shape.type != "Unknown") {
         stream << " [" << std::fixed << std::setprecision(precision)
-               << shape.smoothness << "]";
+                << shape.smoothness << "]";
     }
     return stream.str();
 }
 
 std::map<std::string, int> ShapeDetector::countKnownShapes(
-    const std::vector<DetectedShape>& shapes, int& unknownCount) const {
+    const std::vector<DetectedShape> &shapes, int &unknownCount) const {
     std::map<std::string, int> counts;
     unknownCount = 0;
-    for (const auto& shape : shapes) {
+    for (const auto &shape: shapes) {
         if (shape.type == "Unknown") {
             ++unknownCount;
             continue;
@@ -333,7 +333,7 @@ std::map<std::string, int> ShapeDetector::countKnownShapes(
     return counts;
 }
 
-void ShapeDetector::annotateSummary(cv::Mat& image, const std::vector<DetectedShape>& shapes) {
+void ShapeDetector::annotateSummary(cv::Mat &image, const std::vector<DetectedShape> &shapes) {
     const cv::Point origin{10, 25};
     const double fontScale = 0.6;
     const int thickness = 1;
@@ -351,8 +351,8 @@ void ShapeDetector::annotateSummary(cv::Mat& image, const std::vector<DetectedSh
         const std::map<std::string, int> counts = countKnownShapes(shapes, unknownCount);
 
         const int knownCount =
-            std::accumulate(counts.begin(), counts.end(), 0,
-                            [](int sum, const auto& entry) { return sum + entry.second; });
+                std::accumulate(counts.begin(), counts.end(), 0,
+                                [](int sum, const auto &entry) { return sum + entry.second; });
 
         std::stringstream header;
         header << "Shapes detected: " << knownCount;
@@ -363,7 +363,7 @@ void ShapeDetector::annotateSummary(cv::Mat& image, const std::vector<DetectedSh
 
         if (!counts.empty()) {
             int line = 0;
-            for (const auto& entry : counts) {
+            for (const auto &entry: counts) {
                 std::stringstream lineStream;
                 lineStream << "  " << entry.first << ": " << entry.second;
                 lines.push_back(lineStream.str());
@@ -381,7 +381,7 @@ void ShapeDetector::annotateSummary(cv::Mat& image, const std::vector<DetectedSh
 
     const int lineHeight = 20;
     int maxWidth = 0;
-    for (const auto& text : lines) {
+    for (const auto &text: lines) {
         int baseline = 0;
         const cv::Size size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX,
                                               fontScale, thickness, &baseline);
@@ -397,14 +397,16 @@ void ShapeDetector::annotateSummary(cv::Mat& image, const std::vector<DetectedSh
     cv::rectangle(image, backgroundRect, cv::Scalar(0, 255, 255), 1);
 
     for (size_t idx = 0; idx < lines.size(); ++idx) {
-        const cv::Point lineOrigin{origin.x,
-                                   origin.y + static_cast<int>(idx) * lineHeight};
+        const cv::Point lineOrigin{
+            origin.x,
+            origin.y + static_cast<int>(idx) * lineHeight
+        };
         cv::putText(image, lines[idx], lineOrigin, cv::FONT_HERSHEY_SIMPLEX, fontScale,
                     cv::Scalar(0, 255, 255), thickness);
     }
 }
 
-void ShapeDetector::saveDetectionsToFile(const std::vector<DetectedShape>& shapes) {
+void ShapeDetector::saveDetectionsToFile(const std::vector<DetectedShape> &shapes) {
     std::ofstream outFile(outputFileName);
     if (!outFile.is_open()) {
         std::cerr << "ERROR: Unable to open output file (" << outputFileName << ")." << std::endl;
@@ -420,7 +422,7 @@ void ShapeDetector::saveDetectionsToFile(const std::vector<DetectedShape>& shape
     outFile << "-------------------------" << std::endl;
 
     int count = 1;
-    for (const auto& shape : shapes) {
+    for (const auto &shape: shapes) {
         if (shape.type == "Unknown") {
             continue;
         }
@@ -439,12 +441,12 @@ void ShapeDetector::saveDetectionsToFile(const std::vector<DetectedShape>& shape
     const std::map<std::string, int> counts = countKnownShapes(shapes, unknownCount);
     outFile << "Summary:" << std::endl;
     outFile << "  Known shapes : " << std::accumulate(
-                counts.begin(), counts.end(), 0,
-                [](int sum, const auto& entry) { return sum + entry.second; }) << std::endl;
+        counts.begin(), counts.end(), 0,
+        [](int sum, const auto &entry) { return sum + entry.second; }) << std::endl;
     outFile << "  Unknown      : " << unknownCount << std::endl;
     if (!counts.empty()) {
         outFile << "  Breakdown    :" << std::endl;
-        for (const auto& entry : counts) {
+        for (const auto &entry: counts) {
             outFile << "    - " << entry.first << ": " << entry.second << std::endl;
         }
     }

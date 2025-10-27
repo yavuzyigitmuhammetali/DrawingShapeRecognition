@@ -5,10 +5,9 @@ Maximum detection accuracy and drawing area
 """
 
 import cv2
-import numpy as np
 from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
+from reportlab.pdfgen import canvas
 
 print("🎯 Optimized ArUco Template Generator")
 print("=" * 60)
@@ -17,8 +16,8 @@ print("=" * 60)
 aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 
 # Configuration for maximum accuracy
-MARKER_SIZE_PX = 250          # High resolution for sharp printing
-QUIET_ZONE_PX = 50           # ArUco standard: ~20% of marker size
+MARKER_SIZE_PX = 250  # High resolution for sharp printing
+QUIET_ZONE_PX = 50  # ArUco standard: ~20% of marker size
 MARKER_IDS = [0, 1, 2, 3]
 MARKER_NAMES = ["TOP_LEFT", "TOP_RIGHT", "BOTTOM_RIGHT", "BOTTOM_LEFT"]
 
@@ -84,10 +83,10 @@ c.setDash(2, 4)  # Small dashes
 c.setLineWidth(0.5)
 
 # Active area boundaries (between markers + 1cm margin)
-active_x1 = EDGE_MARGIN + MARKER_DISPLAY_SIZE + 1*cm
-active_y1 = EDGE_MARGIN + MARKER_DISPLAY_SIZE + 1*cm
-active_x2 = page_width - EDGE_MARGIN - MARKER_DISPLAY_SIZE - 1*cm
-active_y2 = page_height - EDGE_MARGIN - MARKER_DISPLAY_SIZE - 1*cm
+active_x1 = EDGE_MARGIN + MARKER_DISPLAY_SIZE + 1 * cm
+active_y1 = EDGE_MARGIN + MARKER_DISPLAY_SIZE + 1 * cm
+active_x2 = page_width - EDGE_MARGIN - MARKER_DISPLAY_SIZE - 1 * cm
+active_y2 = page_height - EDGE_MARGIN - MARKER_DISPLAY_SIZE - 1 * cm
 
 c.rect(active_x1, active_y1, active_x2 - active_x1, active_y2 - active_y1)
 
@@ -96,7 +95,7 @@ c.setFont("Helvetica", 6)
 c.setFillColorRGB(0.7, 0.7, 0.7)  # Gray
 for corner, (x, y) in positions.items():
     marker_id = corner.split('_')[0][0] + corner.split('_')[1][0]  # e.g., "TL"
-    c.drawString(x + 0.1*cm, y - 0.3*cm, marker_id)
+    c.drawString(x + 0.1 * cm, y - 0.3 * cm, marker_id)
 
 # Save PDF
 c.save()

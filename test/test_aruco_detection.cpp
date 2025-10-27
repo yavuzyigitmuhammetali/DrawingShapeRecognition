@@ -76,7 +76,7 @@ int selectCameraDetailed() {
     std::cout << "│ ID   │ Çözünürlük  │ FPS      │ Açıklama             │" << std::endl;
     std::cout << "├──────┼─────────────┼──────────┼──────────────────────┤" << std::endl;
 
-    for (const auto& cam : cameras) {
+    for (const auto &cam: cameras) {
         std::cout << "│ [" << cam.index << "]  │ ";
         std::cout << std::setw(4) << cam.width << "x" << std::setw(4) << std::left << cam.height << " │ ";
         std::cout << std::setw(8) << std::left << (std::to_string(cam.fps) + " fps") << " │ ";
@@ -106,7 +106,7 @@ int selectCameraDetailed() {
 
     // Geçerli mi kontrol et
     bool valid = false;
-    for (const auto& cam : cameras) {
+    for (const auto &cam: cameras) {
         if (cam.index == selected) {
             valid = true;
             std::cout << "\n✅ Kamera " << selected << " seçildi: " << cam.description << std::endl;
@@ -124,7 +124,7 @@ int selectCameraDetailed() {
 }
 
 // Perspective transform için köşeleri sırala
-std::vector<cv::Point2f> orderPoints(const std::vector<cv::Point2f>& pts) {
+std::vector<cv::Point2f> orderPoints(const std::vector<cv::Point2f> &pts) {
     std::vector<cv::Point2f> ordered(4);
 
     // Toplamı en küçük = sol üst, en büyük = sağ alt
@@ -221,7 +221,7 @@ int main() {
 
         // ArUco detection
         std::vector<int> markerIds;
-        std::vector<std::vector<cv::Point2f>> markerCorners, rejectedCandidates;
+        std::vector<std::vector<cv::Point2f> > markerCorners, rejectedCandidates;
 
         detector.detectMarkers(frame, markerCorners, markerIds, rejectedCandidates);
 
@@ -242,7 +242,7 @@ int main() {
             // ID'leri kontrol et
             bool has_0 = false, has_1 = false, has_2 = false, has_3 = false;
 
-            for (int id : markerIds) {
+            for (int id: markerIds) {
                 if (id == 0) has_0 = true;
                 if (id == 1) has_1 = true;
                 if (id == 2) has_2 = true;
@@ -283,8 +283,8 @@ int main() {
 
                 // Kontur çiz (kağıt sınırı) - KALIN YEŞİL ÇİZGİ
                 for (int i = 0; i < 4; i++) {
-                    cv::line(display, corners[i], corners[(i+1)%4],
-                            cv::Scalar(0, 255, 0), 4);
+                    cv::line(display, corners[i], corners[(i + 1) % 4],
+                             cv::Scalar(0, 255, 0), 4);
                     cv::circle(display, corners[i], 10, cv::Scalar(255, 0, 0), -1);
                     cv::circle(display, corners[i], 12, cv::Scalar(0, 255, 0), 2);
                 }
@@ -299,14 +299,12 @@ int main() {
 
                 cv::Mat transform_matrix = cv::getPerspectiveTransform(corners, dst_points);
                 cv::warpPerspective(frame, warped, transform_matrix,
-                                   cv::Size(OUTPUT_WIDTH, OUTPUT_HEIGHT));
-
+                                    cv::Size(OUTPUT_WIDTH, OUTPUT_HEIGHT));
             } else {
                 status_color = cv::Scalar(0, 165, 255); // Orange
                 int missing = 4 - (has_0 + has_1 + has_2 + has_3);
                 status_text += "(" + std::to_string(missing) + " missing)";
             }
-
         } else {
             status_text = "NO MARKERS DETECTED";
             status_color = cv::Scalar(0, 0, 255); // Red
@@ -315,37 +313,35 @@ int main() {
         // FPS hesapla
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
-        double fps = (elapsed > 0) ? (double)frame_count / elapsed : 0;
+        double fps = (elapsed > 0) ? (double) frame_count / elapsed : 0;
 
         // Bilgileri ekrana yaz - Daha büyük ve okunabilir
         cv::rectangle(display, cv::Point(0, 0), cv::Point(display.cols, 140),
-                     cv::Scalar(20, 20, 20), -1);
+                      cv::Scalar(20, 20, 20), -1);
         cv::rectangle(display, cv::Point(0, 0), cv::Point(display.cols, 140),
-                     status_color, 3);
+                      status_color, 3);
 
         cv::putText(display, status_text, cv::Point(15, 35),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.8, status_color, 2);
+                    cv::FONT_HERSHEY_SIMPLEX, 0.8, status_color, 2);
 
         std::string info = "Camera " + std::to_string(camera_index) +
-                          " | FPS: " + std::to_string((int)fps) +
-                          " | Frames: " + std::to_string(frame_count);
+                           " | FPS: " + std::to_string((int) fps) +
+                           " | Frames: " + std::to_string(frame_count);
         cv::putText(display, info, cv::Point(15, 70),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
+                    cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
 
         // İstatistikler
-        double detection_rate = frame_count > 0 ?
-            (double)detection_count / frame_count * 100 : 0;
-        double four_marker_rate = frame_count > 0 ?
-            (double)four_markers_count / frame_count * 100 : 0;
+        double detection_rate = frame_count > 0 ? (double) detection_count / frame_count * 100 : 0;
+        double four_marker_rate = frame_count > 0 ? (double) four_markers_count / frame_count * 100 : 0;
 
-        std::string stats = "Detection: " + std::to_string((int)detection_rate) +
-                           "% | Perfect (4/4): " + std::to_string((int)four_marker_rate) + "%";
+        std::string stats = "Detection: " + std::to_string((int) detection_rate) +
+                            "% | Perfect (4/4): " + std::to_string((int) four_marker_rate) + "%";
         cv::putText(display, stats, cv::Point(15, 100),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(100, 255, 255), 2);
+                    cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(100, 255, 255), 2);
 
         cv::putText(display, "'q'=Quit  's'=Screenshot  'r'=Reset Stats",
-                   cv::Point(15, 130),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(200, 200, 200), 1);
+                    cv::Point(15, 130),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(200, 200, 200), 1);
 
         // Göster
         cv::imshow("ArUco Detection Test - Camera " + std::to_string(camera_index), display);
@@ -353,11 +349,11 @@ int main() {
         if (!warped.empty()) {
             // Bird's eye view'e bilgi ekle
             cv::putText(warped, "Bird's Eye View (Corrected)",
-                       cv::Point(20, 40),
-                       cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
+                        cv::Point(20, 40),
+                        cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
             cv::putText(warped, "Template Quality: GOOD",
-                       cv::Point(20, 80),
-                       cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 0), 2);
+                        cv::Point(20, 80),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 0), 2);
 
             cv::imshow("Bird's Eye View", warped);
         }
@@ -401,13 +397,13 @@ int main() {
     std::cout << "║  Any Marker Detected: " << std::setw(30) << std::left << detection_count << "║" << std::endl;
     std::cout << "║  All 4 Detected:      " << std::setw(30) << std::left << four_markers_count << "║" << std::endl;
 
-    double detection_rate = frame_count > 0 ? (double)detection_count / frame_count * 100 : 0;
-    double four_rate = frame_count > 0 ? (double)four_markers_count / frame_count * 100 : 0;
+    double detection_rate = frame_count > 0 ? (double) detection_count / frame_count * 100 : 0;
+    double four_rate = frame_count > 0 ? (double) four_markers_count / frame_count * 100 : 0;
 
     std::cout << "║  Detection Rate:      " << std::setw(30) << std::left
-              << (std::to_string((int)detection_rate) + "%") << "║" << std::endl;
+            << (std::to_string((int) detection_rate) + "%") << "║" << std::endl;
     std::cout << "║  Perfect Rate (4/4):  " << std::setw(30) << std::left
-              << (std::to_string((int)four_rate) + "%") << "║" << std::endl;
+            << (std::to_string((int) four_rate) + "%") << "║" << std::endl;
     std::cout << "╚════════════════════════════════════════════════════════╝" << std::endl;
 
     // Değerlendirme

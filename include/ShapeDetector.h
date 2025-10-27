@@ -15,27 +15,35 @@ struct DetectedShape {
 class ShapeDetector {
 public:
     ShapeDetector();
+
     ~ShapeDetector();
 
     void run();
 
 private:
-    cv::Mat processFrame(const cv::Mat& frame);
+    cv::Mat processFrame(const cv::Mat &frame);
 
-    cv::Mat preProcessImage(const cv::Mat& frame);
-    std::vector<cv::Point> getLargestContour(const cv::Mat& processedImage,
+    cv::Mat preProcessImage(const cv::Mat &frame);
+
+    std::vector<cv::Point> getLargestContour(const cv::Mat &processedImage,
                                              cv::Size originalFrameSize);
-    std::vector<cv::Point> reOrderPoints(const std::vector<cv::Point>& points);
-    cv::Mat warpImage(const cv::Mat& frame, const std::vector<cv::Point>& points);
 
-    std::vector<DetectedShape> findShapes(const cv::Mat& warpedImage);
+    std::vector<cv::Point> reOrderPoints(const std::vector<cv::Point> &points);
 
-    void drawDetections(cv::Mat& image, const std::vector<DetectedShape>& shapes);
-    void saveDetectionsToFile(const std::vector<DetectedShape>& shapes);
-    void annotateSummary(cv::Mat& image, const std::vector<DetectedShape>& shapes);
-    std::string formatShapeLabel(const DetectedShape& shape, int precision = 2) const;
-    std::map<std::string, int> countKnownShapes(const std::vector<DetectedShape>& shapes,
-                                                int& unknownCount) const;
+    cv::Mat warpImage(const cv::Mat &frame, const std::vector<cv::Point> &points);
+
+    std::vector<DetectedShape> findShapes(const cv::Mat &warpedImage);
+
+    void drawDetections(cv::Mat &image, const std::vector<DetectedShape> &shapes);
+
+    void saveDetectionsToFile(const std::vector<DetectedShape> &shapes);
+
+    void annotateSummary(cv::Mat &image, const std::vector<DetectedShape> &shapes);
+
+    std::string formatShapeLabel(const DetectedShape &shape, int precision = 2) const;
+
+    std::map<std::string, int> countKnownShapes(const std::vector<DetectedShape> &shapes,
+                                                int &unknownCount) const;
 
     cv::VideoCapture cap;
     std::string windowName{"Shape Detector - Original"};

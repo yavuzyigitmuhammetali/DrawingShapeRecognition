@@ -4,7 +4,8 @@ Real-time geometric shape detection and quality assessment using OpenCV and ArUc
 
 ## 📖 Project Description
 
-This project analyzes real-time video feed to detect and classify hand-drawn geometric shapes on paper. It uses ArUco markers for perspective correction and OpenCV for shape detection and classification.
+This project analyzes real-time video feed to detect and classify hand-drawn geometric shapes on paper. It uses ArUco
+markers for perspective correction and OpenCV for shape detection and classification.
 
 ### 🎯 Features
 
@@ -32,10 +33,12 @@ This project analyzes real-time video feed to detect and classify hand-drawn geo
 ## 📋 Requirements
 
 ### System Requirements
+
 - C++17 compatible compiler
 - CMake 3.20 or higher
 - OpenCV 4.x with contrib modules (ArUco)
 
 ### Hardware Requirements
+
 - Webcam (recommended: 720p @ 30fps or higher)
 - Printer (for ArUco markers)

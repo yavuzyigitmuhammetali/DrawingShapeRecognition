@@ -7,9 +7,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Build type
-if(NOT CMAKE_BUILD_TYPE)
+if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
-endif()
+endif ()
 
 # Compiler flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
@@ -34,14 +34,14 @@ message(STATUS "")
 
 # Include directories
 include_directories(
-    ${CMAKE_SOURCE_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
+        ${CMAKE_SOURCE_DIR}/include
+        ${OpenCV_INCLUDE_DIRS}
 )
 
 # Source files (will be populated as we create classes)
 set(SOURCES
-    src/main.cpp
-    src/ShapeDetector.cpp
+        src/main.cpp
+        src/ShapeDetector.cpp
 )
 
 # Main executable
@@ -55,12 +55,12 @@ install(TARGETS shape_recognition DESTINATION bin)
 
 # Print post-build message
 add_custom_command(TARGET shape_recognition POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E echo ""
-    COMMAND ${CMAKE_COMMAND} -E echo "=========================================="
-    COMMAND ${CMAKE_COMMAND} -E echo "  Build completed successfully!"
-    COMMAND ${CMAKE_COMMAND} -E echo "  Executable: $<TARGET_FILE:shape_recognition>"
-    COMMAND ${CMAKE_COMMAND} -E echo "=========================================="
-    COMMAND ${CMAKE_COMMAND} -E echo ""
+        COMMAND ${CMAKE_COMMAND} -E echo ""
+        COMMAND ${CMAKE_COMMAND} -E echo "=========================================="
+        COMMAND ${CMAKE_COMMAND} -E echo "  Build completed successfully!"
+        COMMAND ${CMAKE_COMMAND} -E echo "  Executable: $<TARGET_FILE:shape_recognition>"
+        COMMAND ${CMAKE_COMMAND} -E echo "=========================================="
+        COMMAND ${CMAKE_COMMAND} -E echo ""
 )
 
 # Test executables
