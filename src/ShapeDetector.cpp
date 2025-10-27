@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <numeric>
 #include <sstream>
 
 namespace {
@@ -322,28 +323,37 @@ void ShapeDetector::annotateSummary(cv::Mat& image, const std::vector<DetectedSh
     }
 
     if (shapes.empty()) {
-        cv::putText(image, "No shapes detected", origin, cv::FONT_HERSHEY_SIMPLEX, fontScale,
-                    cv::Scalar(0, 255, 255), thickness);
+        cv::putText(image, "No shapes detected", origin, cv::FONT_HERSHEY_SIMPLEX,
+                    fontScale, cv::Scalar(0, 255, 255), thickness);
         return;
     }
 
     std::map<std::string, int> counts;
+    int unknownCount = 0;
     for (const auto& shape : shapes) {
         if (shape.type == "Unknown") {
+            ++unknownCount;
             continue;
         }
         ++counts[shape.type];
     }
 
-    if (counts.empty()) {
-        cv::putText(image, "Shapes detected: 0 (unknown only)", origin,
-                    cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0, 255, 255),
-                    thickness);
-        return;
+    const int knownCount =
+        std::accumulate(counts.begin(), counts.end(), 0,
+                        [](int sum, const auto& entry) { return sum + entry.second; });
+
+    std::stringstream header;
+    header << "Shapes detected: " << knownCount;
+    if (unknownCount > 0) {
+        header << " (Unknown: " << unknownCount << ")";
     }
 
-    cv::putText(image, "Shapes detected:", origin, cv::FONT_HERSHEY_SIMPLEX, fontScale,
+    cv::putText(image, header.str(), origin, cv::FONT_HERSHEY_SIMPLEX, fontScale,
                 cv::Scalar(0, 255, 255), thickness);
+
+    if (counts.empty()) {
+        return;
+    }
 
     int line = 1;
     for (const auto& entry : counts) {
@@ -353,6 +363,12 @@ void ShapeDetector::annotateSummary(cv::Mat& image, const std::vector<DetectedSh
         cv::putText(image, lineStream.str(), lineOrigin, cv::FONT_HERSHEY_SIMPLEX, fontScale,
                     cv::Scalar(0, 255, 255), thickness);
         ++line;
+        if (line > 5) {
+            cv::putText(image, "  ...", {origin.x, origin.y + line * 20},
+                        cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0, 255, 255),
+                        thickness);
+            break;
+        }
     }
 }
 
