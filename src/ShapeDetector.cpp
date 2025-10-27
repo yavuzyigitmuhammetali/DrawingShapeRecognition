@@ -3,8 +3,18 @@
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
+
+namespace {
+constexpr double kSigma = 0.33;
+constexpr double kMinPaperAreaRatio = 0.05;
+constexpr double kMinShapeAreaRatio = 0.0015;
+constexpr double kCircularityThreshold = 0.85;
+constexpr float kWarpWidth = 640.0F;
+constexpr float kWarpHeight = 480.0F;
+}  // namespace
 
 ShapeDetector::ShapeDetector() {
     cap.open(0);
@@ -51,7 +61,7 @@ cv::Mat ShapeDetector::processFrame(const cv::Mat& frame) {
     std::vector<DetectedShape> allShapes;
     if (!paperContour.empty()) {
         cv::drawContours(outputFrame, std::vector<std::vector<cv::Point>>{paperContour}, -1,
-                         cv::Scalar(0, 255, 0), 2);
+                         cv::Scalar(0, 255, 0), 3);
 
         cv::Mat warped = warpImage(frame, paperContour);
         if (!warped.empty()) {
@@ -70,7 +80,11 @@ cv::Mat ShapeDetector::preProcessImage(const cv::Mat& frame) {
     cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
     cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 5, 0);
 
-    cv::Canny(blurred, edges, 50, 150);
+    const double meanIntensity = cv::mean(blurred)[0];
+    const int lower = std::max(0, static_cast<int>((1.0 - kSigma) * meanIntensity));
+    const int upper = std::min(255, static_cast<int>((1.0 + kSigma) * meanIntensity));
+
+    cv::Canny(blurred, edges, lower, upper);
 
     cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
     cv::dilate(edges, dilated, kernel);
@@ -85,7 +99,8 @@ std::vector<cv::Point> ShapeDetector::getLargestContour(const cv::Mat& processed
                      cv::CHAIN_APPROX_SIMPLE);
 
     const double minPaperArea =
-        static_cast<double>(originalFrameSize.width) * originalFrameSize.height * 0.05;
+        static_cast<double>(originalFrameSize.width) * originalFrameSize.height *
+        kMinPaperAreaRatio;
 
     double maxArea = 0.0;
     std::vector<cv::Point> largestContour;
@@ -99,6 +114,7 @@ std::vector<cv::Point> ShapeDetector::getLargestContour(const cv::Mat& processed
         const double perimeter = cv::arcLength(contour, true);
         std::vector<cv::Point> approx;
         cv::approxPolyDP(contour, approx, 0.02 * perimeter, true);
+
         if (approx.size() == 4 && area > maxArea) {
             maxArea = area;
             largestContour = approx;
@@ -124,14 +140,19 @@ std::vector<cv::Point> ShapeDetector::reOrderPoints(const std::vector<cv::Point>
         diffPoints.push_back(pt.x - pt.y);
     }
 
-    orderedPoints[0] = points[std::distance(
-        sumPoints.begin(), std::min_element(sumPoints.begin(), sumPoints.end()))];
-    orderedPoints[3] = points[std::distance(
-        sumPoints.begin(), std::max_element(sumPoints.begin(), sumPoints.end()))];
-    orderedPoints[1] = points[std::distance(
-        diffPoints.begin(), std::max_element(diffPoints.begin(), diffPoints.end()))];
-    orderedPoints[2] = points[std::distance(
-        diffPoints.begin(), std::min_element(diffPoints.begin(), diffPoints.end()))];
+    const auto topLeftIdx = static_cast<size_t>(
+        std::distance(sumPoints.begin(), std::min_element(sumPoints.begin(), sumPoints.end())));
+    const auto bottomRightIdx = static_cast<size_t>(
+        std::distance(sumPoints.begin(), std::max_element(sumPoints.begin(), sumPoints.end())));
+    const auto topRightIdx = static_cast<size_t>(
+        std::distance(diffPoints.begin(), std::max_element(diffPoints.begin(), diffPoints.end())));
+    const auto bottomLeftIdx = static_cast<size_t>(
+        std::distance(diffPoints.begin(), std::min_element(diffPoints.begin(), diffPoints.end())));
+
+    orderedPoints[0] = points[topLeftIdx];
+    orderedPoints[3] = points[bottomRightIdx];
+    orderedPoints[1] = points[topRightIdx];
+    orderedPoints[2] = points[bottomLeftIdx];
 
     return orderedPoints;
 }
@@ -159,15 +180,16 @@ cv::Mat ShapeDetector::warpImage(const cv::Mat& frame, const std::vector<cv::Poi
 
     const cv::Point2f dst[4] = {
         {0.0F, 0.0F},
-        {640.0F, 0.0F},
-        {0.0F, 480.0F},
-        {640.0F, 480.0F},
+        {kWarpWidth, 0.0F},
+        {0.0F, kWarpHeight},
+        {kWarpWidth, kWarpHeight},
     };
 
     cv::Mat transformMatrix = cv::getPerspectiveTransform(src, dst);
 
     cv::Mat warpedImage;
-    cv::warpPerspective(frame, warpedImage, transformMatrix, cv::Size(640, 480));
+    cv::warpPerspective(frame, warpedImage, transformMatrix,
+                        cv::Size(static_cast<int>(kWarpWidth), static_cast<int>(kWarpHeight)));
     return warpedImage;
 }
 
@@ -178,7 +200,8 @@ std::vector<DetectedShape> ShapeDetector::findShapes(const cv::Mat& warpedImage)
     cv::cvtColor(warpedImage, gray, cv::COLOR_BGR2GRAY);
     cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 3, 0);
 
-    cv::threshold(blurred, binary, 100, 255, cv::THRESH_BINARY_INV);
+    cv::adaptiveThreshold(blurred, binary, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C,
+                          cv::THRESH_BINARY_INV, 51, 9);
 
     cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
     cv::morphologyEx(binary, binary, cv::MORPH_OPEN, kernel);
@@ -188,7 +211,7 @@ std::vector<DetectedShape> ShapeDetector::findShapes(const cv::Mat& warpedImage)
 
     const double warpedArea =
         static_cast<double>(warpedImage.cols) * warpedImage.rows;
-    const double minShapeArea = warpedArea * 0.0015;
+    const double minShapeArea = warpedArea * kMinShapeAreaRatio;
 
     for (const auto& contour : contours) {
         const double area = cv::contourArea(contour);
@@ -205,26 +228,60 @@ std::vector<DetectedShape> ShapeDetector::findShapes(const cv::Mat& warpedImage)
             continue;
         }
 
-        const double epsilon = 0.03 * perimeter;
+        const double epsilon = 0.025 * perimeter;
         std::vector<cv::Point> approx;
         cv::approxPolyDP(contour, approx, epsilon, true);
         const int cornerCount = static_cast<int>(approx.size());
 
+        const double circularity = (4.0 * CV_PI * area) / (perimeter * perimeter);
+        const cv::RotatedRect minRect = cv::minAreaRect(contour);
+        const double minRectArea = minRect.size.area();
+        const double polygonCompactness = minRectArea > 0.0 ? area / minRectArea : 1.0;
+
+        const double approxPerimeter = cv::arcLength(approx, true);
+        const double perimeterRatio =
+            approxPerimeter > 0.0 ? approxPerimeter / perimeter : 1.0;
+
         if (cornerCount == 3) {
             detected.type = "Triangle";
         } else if (cornerCount == 4) {
-            const float aspect =
-                static_cast<float>(detected.boundingBox.width) /
-                static_cast<float>(detected.boundingBox.height);
-            if (aspect > 0.9F && aspect < 1.1F) {
-                detected.type = "Square";
+            if (circularity > kCircularityThreshold) {
+                detected.type = "Circle";
             } else {
-                detected.type = "Rectangle";
+                const double epsilonPolygon = 0.04 * perimeter;
+                std::vector<cv::Point> refinedApprox;
+                cv::approxPolyDP(contour, refinedApprox, epsilonPolygon, true);
+
+                if (refinedApprox.size() == 3) {
+                    detected.type = "Triangle";
+                } else {
+                    const float aspect =
+                        static_cast<float>(detected.boundingBox.width) /
+                        static_cast<float>(detected.boundingBox.height);
+                    if (aspect > 0.90F && aspect < 1.10F) {
+                        detected.type = "Square";
+                    } else {
+                        detected.type = "Rectangle";
+                    }
+                }
             }
-        } else if (cornerCount >= 5) {
+        } else if (cornerCount == 6) {
+            detected.type = circularity > kCircularityThreshold ? "Circle" : "Hexagon";
+        } else if (cornerCount > 6) {
             detected.type = "Circle";
         } else {
-            detected.type = "Unknown";
+            detected.type = circularity > kCircularityThreshold ? "Circle" : "Unknown";
+        }
+
+        if (detected.type == "Triangle") {
+            detected.smoothness = perimeterRatio;
+        } else if (detected.type == "Circle") {
+            detected.smoothness = circularity;
+        } else if (detected.type == "Square" || detected.type == "Rectangle" ||
+                   detected.type == "Hexagon") {
+            detected.smoothness = polygonCompactness;
+        } else {
+            detected.smoothness = 0.0;
         }
 
         shapes.push_back(detected);
@@ -241,7 +298,11 @@ void ShapeDetector::drawDetections(cv::Mat& image, const std::vector<DetectedSha
 
         cv::rectangle(image, shape.boundingBox, cv::Scalar(0, 0, 255), 2);
 
-        const std::string label = shape.type;
+        std::stringstream labelStream;
+        labelStream << shape.type << " [" << std::fixed << std::setprecision(2)
+                    << shape.smoothness << "]";
+        const std::string label = labelStream.str();
+
         cv::Point labelOrigin(shape.boundingBox.x,
                               std::max(0, shape.boundingBox.y - 5));
         cv::putText(image, label, labelOrigin, cv::FONT_HERSHEY_SIMPLEX, 0.5,
@@ -272,10 +333,14 @@ void ShapeDetector::saveDetectionsToFile(const std::vector<DetectedShape>& shape
 
         outFile << "Shape #" << count++ << ":" << std::endl;
         outFile << "  Type          : " << shape.type << std::endl;
+
+        std::stringstream smoothStream;
+        smoothStream << std::fixed << std::setprecision(3) << shape.smoothness;
+        outFile << "  Smoothness    : " << smoothStream.str() << std::endl;
+
         outFile << "  Box (x,y,w,h) : [" << shape.boundingBox.x << ", "
                 << shape.boundingBox.y << ", " << shape.boundingBox.width << ", "
                 << shape.boundingBox.height << "]" << std::endl;
         outFile << "-------------------------" << std::endl;
     }
 }
-
