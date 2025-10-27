@@ -328,53 +328,72 @@ void ShapeDetector::annotateSummary(cv::Mat& image, const std::vector<DetectedSh
         return;
     }
 
+    std::vector<std::string> lines;
+
     if (shapes.empty()) {
-        cv::putText(image, "No shapes detected", origin, cv::FONT_HERSHEY_SIMPLEX,
-                    fontScale, cv::Scalar(0, 255, 255), thickness);
-        return;
-    }
-
-    std::map<std::string, int> counts;
-    int unknownCount = 0;
-    for (const auto& shape : shapes) {
-        if (shape.type == "Unknown") {
-            ++unknownCount;
-            continue;
+        lines.emplace_back("No shapes detected");
+    } else {
+        std::map<std::string, int> counts;
+        int unknownCount = 0;
+        for (const auto& shape : shapes) {
+            if (shape.type == "Unknown") {
+                ++unknownCount;
+                continue;
+            }
+            ++counts[shape.type];
         }
-        ++counts[shape.type];
+
+        const int knownCount =
+            std::accumulate(counts.begin(), counts.end(), 0,
+                            [](int sum, const auto& entry) { return sum + entry.second; });
+
+        std::stringstream header;
+        header << "Shapes detected: " << knownCount;
+        if (unknownCount > 0) {
+            header << " (Unknown: " << unknownCount << ")";
+        }
+        lines.push_back(header.str());
+
+        if (!counts.empty()) {
+            int line = 0;
+            for (const auto& entry : counts) {
+                std::stringstream lineStream;
+                lineStream << "  " << entry.first << ": " << entry.second;
+                lines.push_back(lineStream.str());
+                ++line;
+                if (line >= 5) {
+                    lines.emplace_back("  ...");
+                    break;
+                }
+            }
+        }
     }
-
-    const int knownCount =
-        std::accumulate(counts.begin(), counts.end(), 0,
-                        [](int sum, const auto& entry) { return sum + entry.second; });
-
-    std::stringstream header;
-    header << "Shapes detected: " << knownCount;
-    if (unknownCount > 0) {
-        header << " (Unknown: " << unknownCount << ")";
-    }
-
-    cv::putText(image, header.str(), origin, cv::FONT_HERSHEY_SIMPLEX, fontScale,
-                cv::Scalar(0, 255, 255), thickness);
-
-    if (counts.empty()) {
+    if (lines.empty()) {
         return;
     }
 
-    int line = 1;
-    for (const auto& entry : counts) {
-        std::stringstream lineStream;
-        lineStream << "  " << entry.first << ": " << entry.second;
-        cv::Point lineOrigin{origin.x, origin.y + line * 20};
-        cv::putText(image, lineStream.str(), lineOrigin, cv::FONT_HERSHEY_SIMPLEX, fontScale,
+    const int lineHeight = 20;
+    int maxWidth = 0;
+    for (const auto& text : lines) {
+        int baseline = 0;
+        const cv::Size size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX,
+                                              fontScale, thickness, &baseline);
+        maxWidth = std::max(maxWidth, size.width);
+    }
+
+    const int totalHeight = static_cast<int>(lines.size()) * lineHeight;
+    const int rectX = std::max(0, origin.x - 8);
+    const int rectY = std::max(0, origin.y - lineHeight);
+    const cv::Rect backgroundRect(rectX, rectY, maxWidth + 16, totalHeight + 10);
+
+    cv::rectangle(image, backgroundRect, cv::Scalar(0, 0, 0), cv::FILLED);
+    cv::rectangle(image, backgroundRect, cv::Scalar(0, 255, 255), 1);
+
+    for (size_t idx = 0; idx < lines.size(); ++idx) {
+        const cv::Point lineOrigin{origin.x,
+                                   origin.y + static_cast<int>(idx) * lineHeight};
+        cv::putText(image, lines[idx], lineOrigin, cv::FONT_HERSHEY_SIMPLEX, fontScale,
                     cv::Scalar(0, 255, 255), thickness);
-        ++line;
-        if (line > 5) {
-            cv::putText(image, "  ...", {origin.x, origin.y + line * 20},
-                        cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0, 255, 255),
-                        thickness);
-            break;
-        }
     }
 }
 
