@@ -1,6 +1,7 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,8 @@ private:
     void saveDetectionsToFile(const std::vector<DetectedShape>& shapes);
     void annotateSummary(cv::Mat& image, const std::vector<DetectedShape>& shapes);
     std::string formatShapeLabel(const DetectedShape& shape, int precision = 2) const;
+    std::map<std::string, int> countKnownShapes(const std::vector<DetectedShape>& shapes,
+                                                int& unknownCount) const;
 
     cv::VideoCapture cap;
     std::string windowName{"Shape Detector - Original"};

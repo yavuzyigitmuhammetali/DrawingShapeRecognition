@@ -319,6 +319,20 @@ std::string ShapeDetector::formatShapeLabel(const DetectedShape& shape, int prec
     return stream.str();
 }
 
+std::map<std::string, int> ShapeDetector::countKnownShapes(
+    const std::vector<DetectedShape>& shapes, int& unknownCount) const {
+    std::map<std::string, int> counts;
+    unknownCount = 0;
+    for (const auto& shape : shapes) {
+        if (shape.type == "Unknown") {
+            ++unknownCount;
+            continue;
+        }
+        ++counts[shape.type];
+    }
+    return counts;
+}
+
 void ShapeDetector::annotateSummary(cv::Mat& image, const std::vector<DetectedShape>& shapes) {
     const cv::Point origin{10, 25};
     const double fontScale = 0.6;
@@ -333,15 +347,8 @@ void ShapeDetector::annotateSummary(cv::Mat& image, const std::vector<DetectedSh
     if (shapes.empty()) {
         lines.emplace_back("No shapes detected");
     } else {
-        std::map<std::string, int> counts;
         int unknownCount = 0;
-        for (const auto& shape : shapes) {
-            if (shape.type == "Unknown") {
-                ++unknownCount;
-                continue;
-            }
-            ++counts[shape.type];
-        }
+        const std::map<std::string, int> counts = countKnownShapes(shapes, unknownCount);
 
         const int knownCount =
             std::accumulate(counts.begin(), counts.end(), 0,
@@ -426,5 +433,19 @@ void ShapeDetector::saveDetectionsToFile(const std::vector<DetectedShape>& shape
                 << shape.boundingBox.y << ", " << shape.boundingBox.width << ", "
                 << shape.boundingBox.height << "]" << std::endl;
         outFile << "-------------------------" << std::endl;
+    }
+
+    int unknownCount = 0;
+    const std::map<std::string, int> counts = countKnownShapes(shapes, unknownCount);
+    outFile << "Summary:" << std::endl;
+    outFile << "  Known shapes : " << std::accumulate(
+                counts.begin(), counts.end(), 0,
+                [](int sum, const auto& entry) { return sum + entry.second; }) << std::endl;
+    outFile << "  Unknown      : " << unknownCount << std::endl;
+    if (!counts.empty()) {
+        outFile << "  Breakdown    :" << std::endl;
+        for (const auto& entry : counts) {
+            outFile << "    - " << entry.first << ": " << entry.second << std::endl;
+        }
     }
 }
