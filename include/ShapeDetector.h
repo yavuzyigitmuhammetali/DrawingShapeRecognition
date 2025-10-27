@@ -31,10 +31,10 @@ private:
 
     void drawDetections(cv::Mat& image, const std::vector<DetectedShape>& shapes);
     void saveDetectionsToFile(const std::vector<DetectedShape>& shapes);
+    void annotateSummary(cv::Mat& image, const std::vector<DetectedShape>& shapes);
 
     cv::VideoCapture cap;
     std::string windowName{"Shape Detector - Original"};
     std::string warpedWindowName{"Top-Down View"};
     std::string outputFileName{"detected_shapes.txt"};
 };
-

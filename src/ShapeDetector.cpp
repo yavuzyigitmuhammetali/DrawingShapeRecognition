@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <sstream>
 
 namespace {
@@ -71,6 +72,7 @@ cv::Mat ShapeDetector::processFrame(const cv::Mat& frame) {
         }
     }
 
+    annotateSummary(outputFrame, allShapes);
     saveDetectionsToFile(allShapes);
     return outputFrame;
 }
@@ -307,6 +309,50 @@ void ShapeDetector::drawDetections(cv::Mat& image, const std::vector<DetectedSha
                               std::max(0, shape.boundingBox.y - 5));
         cv::putText(image, label, labelOrigin, cv::FONT_HERSHEY_SIMPLEX, 0.5,
                     cv::Scalar(0, 0, 255), 1);
+    }
+}
+
+void ShapeDetector::annotateSummary(cv::Mat& image, const std::vector<DetectedShape>& shapes) {
+    const cv::Point origin{10, 25};
+    const double fontScale = 0.6;
+    const int thickness = 1;
+
+    if (image.empty()) {
+        return;
+    }
+
+    if (shapes.empty()) {
+        cv::putText(image, "No shapes detected", origin, cv::FONT_HERSHEY_SIMPLEX, fontScale,
+                    cv::Scalar(0, 255, 255), thickness);
+        return;
+    }
+
+    std::map<std::string, int> counts;
+    for (const auto& shape : shapes) {
+        if (shape.type == "Unknown") {
+            continue;
+        }
+        ++counts[shape.type];
+    }
+
+    if (counts.empty()) {
+        cv::putText(image, "Shapes detected: 0 (unknown only)", origin,
+                    cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0, 255, 255),
+                    thickness);
+        return;
+    }
+
+    cv::putText(image, "Shapes detected:", origin, cv::FONT_HERSHEY_SIMPLEX, fontScale,
+                cv::Scalar(0, 255, 255), thickness);
+
+    int line = 1;
+    for (const auto& entry : counts) {
+        std::stringstream lineStream;
+        lineStream << "  " << entry.first << ": " << entry.second;
+        cv::Point lineOrigin{origin.x, origin.y + line * 20};
+        cv::putText(image, lineStream.str(), lineOrigin, cv::FONT_HERSHEY_SIMPLEX, fontScale,
+                    cv::Scalar(0, 255, 255), thickness);
+        ++line;
     }
 }
 
