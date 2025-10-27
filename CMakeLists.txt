@@ -41,11 +41,7 @@ include_directories(
 # Source files (will be populated as we create classes)
 set(SOURCES
     src/main.cpp
-    # src/VideoCapture.cpp
-    # src/PerspectiveTransformer.cpp
-    # src/ShapeDetector.cpp
-    # src/ShapeClassifier.cpp
-    # src/OutputManager.cpp
+    src/ShapeDetector.cpp
 )
 
 # Main executable
