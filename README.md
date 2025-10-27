@@ -20,7 +20,7 @@ This project analyzes real-time video feed to detect and classify hand-drawn geo
 - **Buse Yüsra Köse**
 - **Serdar Sarı**
 - **Taha Yiğit Göksu**
-- **Muhammed Ali Yavuzyiğit**
+- **Muhammet Ali Yavuzyiğit**
 
 ### 🛠️ Technologies
 
