@@ -42,9 +42,8 @@ include_directories(
 set(SOURCES
         src/main.cpp
         src/ShapeDetector.cpp
-        src/ImageProcessor.cpp
-        src/ContourAnalyzer.cpp
-        src/PerspectiveTransformer.cpp
+        src/ArucoDetector.cpp
+        src/ArucoPerspectiveTransformer.cpp
         src/ShapeClassifier.cpp
         src/DetectionRenderer.cpp
         src/ResultWriter.cpp

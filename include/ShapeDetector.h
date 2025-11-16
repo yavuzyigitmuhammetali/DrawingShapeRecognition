@@ -1,9 +1,8 @@
 #pragma once
 
-#include "ContourAnalyzer.h"
+#include "ArucoDetector.h"
+#include "ArucoPerspectiveTransformer.h"
 #include "DetectionRenderer.h"
-#include "ImageProcessor.h"
-#include "PerspectiveTransformer.h"
 #include "ResultWriter.h"
 #include "ShapeClassifier.h"
 
@@ -22,12 +21,11 @@ private:
     cv::Mat processFrame(const cv::Mat &frame);
 
     cv::VideoCapture cap;
-    std::string windowName{"Shape Detector - Original"};
+    std::string windowName{"Shape Detector - ArUco Tracking"};
     std::string warpedWindowName{"Top-Down View"};
 
-    ImageProcessor imageProcessor;
-    ContourAnalyzer contourAnalyzer;
-    PerspectiveTransformer perspectiveTransformer;
+    ArucoDetector arucoDetector;
+    ArucoPerspectiveTransformer arucoPerspectiveTransformer;
     ShapeClassifier shapeClassifier;
     DetectionRenderer detectionRenderer;
     ResultWriter resultWriter;
