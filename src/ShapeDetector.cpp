@@ -73,7 +73,6 @@ cv::Mat ShapeDetector::processFrame(const cv::Mat &frame) {
         }
     }
 
-    annotateSummary(outputFrame, allShapes);
     saveDetectionsToFile(allShapes);
     return outputFrame;
 }
@@ -333,78 +332,6 @@ std::map<std::string, int> ShapeDetector::countKnownShapes(
     return counts;
 }
 
-void ShapeDetector::annotateSummary(cv::Mat &image, const std::vector<DetectedShape> &shapes) {
-    const cv::Point origin{10, 25};
-    const double fontScale = 0.6;
-    const int thickness = 1;
-
-    if (image.empty()) {
-        return;
-    }
-
-    std::vector<std::string> lines;
-
-    if (shapes.empty()) {
-        lines.emplace_back("No shapes detected");
-    } else {
-        int unknownCount = 0;
-        const std::map<std::string, int> counts = countKnownShapes(shapes, unknownCount);
-
-        const int knownCount =
-                std::accumulate(counts.begin(), counts.end(), 0,
-                                [](int sum, const auto &entry) { return sum + entry.second; });
-
-        std::stringstream header;
-        header << "Shapes detected: " << knownCount;
-        if (unknownCount > 0) {
-            header << " (Unknown: " << unknownCount << ")";
-        }
-        lines.push_back(header.str());
-
-        if (!counts.empty()) {
-            int line = 0;
-            for (const auto &entry: counts) {
-                std::stringstream lineStream;
-                lineStream << "  " << entry.first << ": " << entry.second;
-                lines.push_back(lineStream.str());
-                ++line;
-                if (line >= 5) {
-                    lines.emplace_back("  ...");
-                    break;
-                }
-            }
-        }
-    }
-    if (lines.empty()) {
-        return;
-    }
-
-    const int lineHeight = 20;
-    int maxWidth = 0;
-    for (const auto &text: lines) {
-        int baseline = 0;
-        const cv::Size size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX,
-                                              fontScale, thickness, &baseline);
-        maxWidth = std::max(maxWidth, size.width);
-    }
-
-    const int totalHeight = static_cast<int>(lines.size()) * lineHeight;
-    const int rectX = std::max(0, origin.x - 8);
-    const int rectY = std::max(0, origin.y - lineHeight);
-    const cv::Rect backgroundRect(rectX, rectY, maxWidth + 16, totalHeight + 10);
-
-    cv::rectangle(image, backgroundRect, cv::Scalar(0, 0, 0), cv::FILLED);
-    cv::rectangle(image, backgroundRect, cv::Scalar(0, 255, 255), 1);
-
-    for (size_t idx = 0; idx < lines.size(); ++idx) {
-        const cv::Point lineOrigin{
-            origin.x,
-            origin.y + static_cast<int>(idx) * lineHeight
-        };
-        cv::putText(image, lines[idx], lineOrigin, cv::FONT_HERSHEY_SIMPLEX, fontScale,
-                    cv::Scalar(0, 255, 255), thickness);
-    }
-}
 
 void ShapeDetector::saveDetectionsToFile(const std::vector<DetectedShape> &shapes) {
     std::ofstream outFile(outputFileName);
