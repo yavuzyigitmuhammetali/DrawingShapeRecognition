@@ -42,31 +42,18 @@ void ShapeDetector::run() {
 cv::Mat ShapeDetector::processFrame(const cv::Mat &frame) {
     cv::Mat outputFrame = frame.clone();
 
-    // Detect ArUco markers
-    std::map<int, cv::Point2f> markerCenters = arucoDetector.detectMarkers(frame);
+    // Detect markers and get inner corners
+    std::vector<cv::Point2f> corners = arucoDetector.detectAndGetCorners(frame);
+    arucoDetector.drawMarkers(outputFrame);
 
     std::vector<DetectedShape> allShapes;
-    if (arucoDetector.hasAllMarkers()) {
-        // Draw markers on output frame for visualization
-        arucoDetector.drawMarkers(outputFrame);
-
-        // Get ordered corners (TL, TR, BR, BL)
-        std::vector<cv::Point2f> orderedCorners = arucoDetector.getOrderedCorners();
-
-        // Apply perspective transformation
-        cv::Mat warped = arucoPerspectiveTransformer.warpImage(frame, orderedCorners);
-
+    if (!corners.empty()) {
+        cv::Mat warped = arucoPerspectiveTransformer.warpImage(frame, corners);
         if (!warped.empty()) {
-            // Detect shapes in warped (top-down) view
             allShapes = shapeClassifier.findShapes(warped);
             detectionRenderer.drawDetections(warped, allShapes);
             cv::imshow(warpedWindowName, warped);
         }
-    } else {
-        // Show error message when markers are not detected
-        std::string errorMsg = "Place paper with ArUco markers in view";
-        cv::putText(outputFrame, errorMsg, cv::Point(10, frame.rows - 20),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 0, 255), 2);
     }
 
     resultWriter.saveDetectionsToFile(allShapes);

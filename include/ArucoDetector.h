@@ -3,7 +3,6 @@
 #include <opencv2/aruco.hpp>
 #include <opencv2/opencv.hpp>
 #include <vector>
-#include <map>
 
 /**
  * ArUco marker detector for paper tracking
@@ -14,49 +13,24 @@ public:
     ArucoDetector();
 
     /**
-     * Detects ArUco markers in the frame
+     * Detects ArUco markers and returns inner corners for perspective transformation
      * @param frame Input frame
-     * @return Map of marker ID to center point (empty if not all 4 markers found)
+     * @return Vector of 4 inner corner points: TL, TR, BR, BL (empty if not all markers found)
      */
-    std::map<int, cv::Point2f> detectMarkers(const cv::Mat &frame);
+    std::vector<cv::Point2f> detectAndGetCorners(const cv::Mat &frame);
 
     /**
-     * Get ordered corners for perspective transformation
-     * @return Vector of 4 points in order: TL, TR, BR, BL (empty if detection failed)
-     */
-    std::vector<cv::Point2f> getOrderedCorners() const;
-
-    /**
-     * Check if all 4 required markers were detected
+     * Check if all 4 required markers were detected in last frame
      */
     bool hasAllMarkers() const;
 
     /**
-     * Draw detected markers on frame (for debugging/visualization)
+     * Draw detected markers on frame
      */
     void drawMarkers(cv::Mat &frame) const;
 
 private:
     cv::aruco::ArucoDetector arucoDetector;
-
-    // Last detection results
     std::vector<int> markerIds;
     std::vector<std::vector<cv::Point2f>> markerCorners;
-    std::map<int, cv::Point2f> markerCenters;
-
-    // Required marker IDs
-    static constexpr int MARKER_TOP_LEFT = 0;
-    static constexpr int MARKER_TOP_RIGHT = 1;
-    static constexpr int MARKER_BOTTOM_RIGHT = 2;
-    static constexpr int MARKER_BOTTOM_LEFT = 3;
-
-    /**
-     * Calculate center point of a marker from its 4 corners
-     */
-    static cv::Point2f calculateCenter(const std::vector<cv::Point2f> &corners);
-
-    /**
-     * Validate that all 4 required markers are present
-     */
-    bool validateMarkers() const;
 };
