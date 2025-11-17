@@ -4,6 +4,8 @@
 #include <string>
 #include <chrono>
 
+class ResultWriter;
+
 /**
  * Manages automatic video recording of bird's-eye view frames
  * Records only when valid ArUco markers are detected with smart buffering
@@ -19,6 +21,9 @@ public:
      * @param frame The warped frame to record (if hasValidFrame is true)
      */
     void update(bool hasValidFrame, const cv::Mat &frame);
+
+    void setResultWriter(ResultWriter *writer);
+    bool isRecording() const { return state == RECORDING; }
 
 private:
     void startRecording();
@@ -36,4 +41,6 @@ private:
     const double bufferDuration;     // Buffer tolerance (seconds)
     const double fps;
     const std::string outputDir{"outputs/videos"};
+
+    ResultWriter *resultWriter{nullptr};
 };

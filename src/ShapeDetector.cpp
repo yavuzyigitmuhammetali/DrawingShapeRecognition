@@ -13,6 +13,8 @@ ShapeDetector::ShapeDetector() {
     std::cout << "Camera opened successfully." << std::endl;
     cv::namedWindow(windowName);
     cv::namedWindow(warpedWindowName);
+
+    videoRecorder.setResultWriter(&resultWriter);
 }
 
 ShapeDetector::~ShapeDetector() {
@@ -61,6 +63,12 @@ cv::Mat ShapeDetector::processFrame(const cv::Mat &frame) {
     // Update video recording
     videoRecorder.update(!warped.empty(), warped);
 
-    resultWriter.saveDetectionsToFile(allShapes);
+    // Log shapes only when recording
+    if (videoRecorder.isRecording()) {
+        for (const auto &shape : allShapes) {
+            resultWriter.addShape(shape);
+        }
+    }
+
     return outputFrame;
 }

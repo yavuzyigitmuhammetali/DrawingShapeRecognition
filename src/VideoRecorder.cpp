@@ -1,4 +1,5 @@
 #include "VideoRecorder.h"
+#include "ResultWriter.h"
 
 #include <iostream>
 #include <iomanip>
@@ -17,6 +18,10 @@ VideoRecorder::~VideoRecorder() {
             std::chrono::steady_clock::now() - recordingStartTime).count();
         stopRecording(recordDuration < minRecordDuration);
     }
+}
+
+void VideoRecorder::setResultWriter(ResultWriter *writer) {
+    resultWriter = writer;
 }
 
 void VideoRecorder::update(bool hasValidFrame, const cv::Mat &frame) {
@@ -63,6 +68,10 @@ void VideoRecorder::startRecording() {
     if (videoWriter.isOpened()) {
         recordingStartTime = std::chrono::steady_clock::now();
         std::cout << "Started recording: " << currentVideoPath << std::endl;
+
+        if (resultWriter) {
+            resultWriter->startNewVideo(currentVideoPath);
+        }
     }
 }
 
@@ -75,6 +84,10 @@ void VideoRecorder::stopRecording(bool deleteFile) {
             std::cout << "Deleted short recording: " << currentVideoPath << std::endl;
         } else {
             std::cout << "Saved recording: " << currentVideoPath << std::endl;
+
+            if (resultWriter) {
+                resultWriter->finishVideo();
+            }
         }
     }
     currentVideoPath.clear();

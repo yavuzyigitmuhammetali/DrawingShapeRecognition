@@ -2,22 +2,31 @@
 
 #include "ShapeClassifier.h"
 
-#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
 class ResultWriter {
 public:
-    explicit ResultWriter(const std::string &outputFileName = "detected_shapes.txt");
+    ResultWriter();
     ~ResultWriter() = default;
 
-    void saveDetectionsToFile(const std::vector<DetectedShape> &shapes) const;
+    void startNewVideo(const std::string &videoPath);
+    void addShape(const DetectedShape &shape);
+    void finishVideo();
 
 private:
-    std::string formatShapeLabel(const DetectedShape &shape, int precision = 2) const;
+    struct ShapeRecord {
+        std::string type;
+        double smoothness;
 
-    std::map<std::string, int> countKnownShapes(const std::vector<DetectedShape> &shapes,
-                                                 int &unknownCount) const;
+        bool operator<(const ShapeRecord &other) const {
+            if (type != other.type) return type < other.type;
+            return std::abs(smoothness - other.smoothness) > 0.01;
+        }
+    };
 
-    std::string outputFileName;
+    std::set<ShapeRecord> uniqueShapes;
+    std::string currentVideoName;
+    std::string outputDir{"outputs/logs"};
 };
