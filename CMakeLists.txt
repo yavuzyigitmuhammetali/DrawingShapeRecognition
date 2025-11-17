@@ -47,6 +47,7 @@ set(SOURCES
         src/ShapeClassifier.cpp
         src/DetectionRenderer.cpp
         src/ResultWriter.cpp
+        src/VideoRecorder.cpp
 )
 
 # Main executable
