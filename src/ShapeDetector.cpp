@@ -144,23 +144,29 @@ std::vector<FillingStats> ShapeDetector::analyzeFillProgress(const cv::Mat &warp
     // Extract current ink from the warped image
     cv::Mat currentInkMask = extractInkMask(warped);
 
+    // Create slightly dilated ink mask for fill calculation to compensate for edge erosion
+    // This allows achieving 100% fill instead of capping at ~95%
+    cv::Mat slightDilatedInk;
+    cv::Mat dilationKernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
+    cv::dilate(currentInkMask, slightDilatedInk, dilationKernel, cv::Point(-1, -1), 1);
+
     // Analyze each reference shape
     for (const auto &refShape : referenceShapes) {
         FillingStats stats;
         stats.boundingBox = refShape.boundingBox;
         stats.shapeType = refShape.originalType;
 
-        // Calculate fill percentage (intersection)
+        // Calculate fill percentage (intersection) using dilated ink for better edge coverage
         cv::Mat intersectionMask;
-        cv::bitwise_and(refShape.mask, currentInkMask, intersectionMask);
+        cv::bitwise_and(refShape.mask, slightDilatedInk, intersectionMask);
         int filledPixels = cv::countNonZero(intersectionMask);
         stats.fillPercentage = (static_cast<double>(filledPixels) / refShape.totalArea) * 100.0;
         stats.filledMask = intersectionMask;
 
         // Calculate overflow (pixels outside tolerance zone)
-        // Create tolerance zone by dilating the reference mask
+        // Use ORIGINAL currentInkMask (not dilated) for strict overflow detection
         cv::Mat toleranceZone;
-        int dilationSize = 4;  // ~4 pixels tolerance (~0.8mm) - strict but allows for slight jitter
+        int dilationSize = 2;  // ~2 pixels (~0.4mm) - Ultra strict
         cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE,
                                                     cv::Size(2 * dilationSize + 1, 2 * dilationSize + 1),
                                                     cv::Point(dilationSize, dilationSize));
