@@ -46,6 +46,7 @@ set(SOURCES
         src/ArucoPerspectiveTransformer.cpp
         src/ShapeClassifier.cpp
         src/DetectionRenderer.cpp
+        src/FillingAnalyzer.cpp
         src/ResultWriter.cpp
         src/VideoRecorder.cpp
 )

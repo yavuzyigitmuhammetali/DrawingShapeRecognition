@@ -3,6 +3,7 @@
 #include "ArucoDetector.h"
 #include "ArucoPerspectiveTransformer.h"
 #include "DetectionRenderer.h"
+#include "FillingAnalyzer.h"
 #include "ResultWriter.h"
 #include "ShapeClassifier.h"
 #include "VideoRecorder.h"
@@ -50,14 +51,9 @@ public:
 
 private:
     cv::Mat processFrame(const cv::Mat &frame);
-
-    // Mode management
     void captureReferenceShapes(const std::vector<DetectedShape> &shapes, const cv::Size &imageSize);
-    std::vector<FillingStats> analyzeFillProgress(const cv::Mat &warped);
     void resetToDrawingMode();
-
-    // Ink extraction helper
-    cv::Mat extractInkMask(const cv::Mat &warped) const;
+    void handleKeyPress(char key);
 
     cv::VideoCapture cap;
     std::string windowName{"Shape Detector - ArUco Tracking"};
@@ -67,6 +63,7 @@ private:
     ArucoPerspectiveTransformer arucoPerspectiveTransformer;
     ShapeClassifier shapeClassifier;
     DetectionRenderer detectionRenderer;
+    FillingAnalyzer fillingAnalyzer;
     ResultWriter resultWriter;
     VideoRecorder videoRecorder;
 
