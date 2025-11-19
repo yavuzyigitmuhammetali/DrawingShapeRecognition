@@ -150,11 +150,11 @@ std::vector<FillingStats> ShapeDetector::analyzeFillProgress(const cv::Mat &warp
         stats.boundingBox = refShape.boundingBox;
         stats.shapeType = refShape.originalType;
 
-        // Create "Core Target" by eroding the reference mask
-        // MAXIMUM SENSITIVITY: Only 1 iteration - user must color very close to edges
-        cv::Mat coreTargetMask;
-        cv::Mat erosionKernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
-        cv::erode(refShape.mask, coreTargetMask, erosionKernel, cv::Point(-1, -1), 1);
+        // Create "Core Target" by excluding the outline itself
+        // The blue reference contour acts as a neutral buffer - not expected to be filled
+        cv::Mat coreTargetMask = refShape.mask.clone();
+        std::vector<std::vector<cv::Point>> contours = {refShape.contour};
+        cv::drawContours(coreTargetMask, contours, 0, cv::Scalar(0), 3);
 
         // Calculate fill percentage against the CORE target (not full mask)
         // This allows 100% achievement while strictly detecting real gaps
