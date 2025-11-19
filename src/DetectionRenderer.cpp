@@ -24,9 +24,20 @@ void DetectionRenderer::drawDetections(cv::Mat &image,
 std::string DetectionRenderer::formatShapeLabel(const DetectedShape &shape, int precision) const {
     std::ostringstream stream;
     stream << shape.type;
+
     if (shape.type != "Unknown") {
-        stream << " [" << std::fixed << std::setprecision(precision)
-                << shape.smoothness << "]";
+        // Check if we're in Analysis Mode (filling/spill ratios are set)
+        if (shape.fillingRatio > 0.0 || shape.spillRatio > 0.0) {
+            // Analysis Mode: Show filling and spill percentages
+            stream << " | Fill: " << std::fixed << std::setprecision(0)
+                   << (shape.fillingRatio * 100.0) << "%";
+            stream << " | Spill: " << std::fixed << std::setprecision(0)
+                   << (shape.spillRatio * 100.0) << "%";
+        } else {
+            // Scanning Mode: Show smoothness score
+            stream << " [" << std::fixed << std::setprecision(precision)
+                   << shape.smoothness << "]";
+        }
     }
     return stream.str();
 }

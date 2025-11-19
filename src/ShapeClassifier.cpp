@@ -1,6 +1,17 @@
 #include "ShapeClassifier.h"
+#include <iostream>
 
-std::vector<DetectedShape> ShapeClassifier::findShapes(const cv::Mat &warpedImage) const {
+std::vector<DetectedShape> ShapeClassifier::findShapes(const cv::Mat &warpedImage) {
+    if (!isAnalysisMode_) {
+        // Stage 1: Scanning Mode - Standard detection
+        return scanForShapes(warpedImage);
+    } else {
+        // Stage 2: Analysis Mode - Compare against all frozen references
+        return analyzeColoring(warpedImage);
+    }
+}
+
+std::vector<DetectedShape> ShapeClassifier::scanForShapes(const cv::Mat &warpedImage) const {
     std::vector<DetectedShape> shapes;
     cv::Mat gray, blurred, binary;
 
@@ -95,4 +106,165 @@ std::vector<DetectedShape> ShapeClassifier::findShapes(const cv::Mat &warpedImag
     }
 
     return shapes;
+}
+
+void ShapeClassifier::captureBaseline(const cv::Mat &warpedFrame) {
+    if (warpedFrame.empty()) {
+        std::cerr << "Cannot capture baseline: empty frame" << std::endl;
+        return;
+    }
+
+    // Process frame to find ALL shapes using standard detection
+    std::vector<DetectedShape> detectedShapes = scanForShapes(warpedFrame);
+
+    if (detectedShapes.empty()) {
+        std::cerr << "No shapes detected to capture" << std::endl;
+        return;
+    }
+
+    // Clear previous frozen shapes
+    frozenShapes.clear();
+
+    // Step 1: Detect current ink (the outline) using Otsu thresholding
+    // This is the ACTUAL ink on the paper at capture time
+    cv::Mat gray, blurred, currentInkMask;
+    cv::cvtColor(warpedFrame, gray, cv::COLOR_BGR2GRAY);
+    cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 3, 0);
+    cv::threshold(blurred, currentInkMask, 0, 255, cv::THRESH_BINARY_INV | cv::THRESH_OTSU);
+
+    // Create morphological kernels (shared across all shapes)
+    cv::Mat dilateKernel = cv::getStructuringElement(
+        cv::MORPH_ELLIPSE,
+        cv::Size(2 * kDilationKernelSize + 1, 2 * kDilationKernelSize + 1)
+    );
+
+    cv::Mat erodeKernel = cv::getStructuringElement(
+        cv::MORPH_ELLIPSE,
+        cv::Size(2 * kErosionKernelSize + 1, 2 * kErosionKernelSize + 1)
+    );
+
+    // Process EACH detected shape
+    for (const auto& detectedShape : detectedShapes) {
+        FrozenShape frozen;
+
+        // Store the frozen contour and type
+        frozen.contour = detectedShape.contour;
+        frozen.type = detectedShape.type;
+
+        // Step 2: Create geometric mask (filled contour)
+        frozen.binaryMask = cv::Mat::zeros(warpedFrame.size(), CV_8UC1);
+        std::vector<std::vector<cv::Point>> contours = {frozen.contour};
+        cv::drawContours(frozen.binaryMask, contours, 0, cv::Scalar(255), cv::FILLED);
+
+        // Step 3: Calculate "True Target" - Empty Space Targeting
+        // Subtract the current ink (outline) from the geometric shape
+        // This gives us ONLY the white paper inside the shape
+        cv::Mat whiteSpaceMask;
+        cv::subtract(frozen.binaryMask, currentInkMask, whiteSpaceMask);
+
+        // Step 4: Apply minimal erosion for jitter tolerance at ink-paper boundary
+        cv::erode(whiteSpaceMask, frozen.innerFillMask, erodeKernel);
+
+        // Calculate the inner area (true white space that needs to be filled)
+        frozen.innerArea = cv::countNonZero(frozen.innerFillMask);
+
+        if (frozen.innerArea == 0) {
+            std::cerr << "Warning: Shape " << frozen.type
+                      << " has no empty space (fully filled or too small). Skipping." << std::endl;
+            continue; // Skip this shape
+        }
+
+        // Create safe spill mask (dilated from geometric boundary - STRICT: k=2)
+        cv::dilate(frozen.binaryMask, frozen.safeSpillMask, dilateKernel);
+
+        // Compute ROI with margin for optimization
+        cv::Rect shapeBBox = detectedShape.boundingBox;
+        frozen.boundingBox = cv::Rect(
+            std::max(0, shapeBBox.x - kROIMargin),
+            std::max(0, shapeBBox.y - kROIMargin),
+            std::min(warpedFrame.cols - std::max(0, shapeBBox.x - kROIMargin),
+                     shapeBBox.width + 2 * kROIMargin),
+            std::min(warpedFrame.rows - std::max(0, shapeBBox.y - kROIMargin),
+                     shapeBBox.height + 2 * kROIMargin)
+        );
+
+        frozenShapes.push_back(frozen);
+
+        std::cout << "Captured: " << frozen.type
+                  << " (White space area: " << frozen.innerArea << " pixels)" << std::endl;
+    }
+
+    // Activate analysis mode
+    isAnalysisMode_ = true;
+
+    std::cout << "Baseline captured: " << frozenShapes.size()
+              << " shape(s) frozen for analysis" << std::endl;
+}
+
+std::vector<DetectedShape> ShapeClassifier::analyzeColoring(const cv::Mat &warpedFrame) const {
+    std::vector<DetectedShape> results;
+
+    // Convert current frame to binary to detect all ink (do this once)
+    // Using OTSU thresholding to correctly identify solid ink masses
+    // (Adaptive thresholding fails on solid black regions with no local contrast)
+    cv::Mat gray, blurred, currentInkMask;
+    cv::cvtColor(warpedFrame, gray, cv::COLOR_BGR2GRAY);
+    cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 3, 0);
+    cv::threshold(blurred, currentInkMask, 0, 255, cv::THRESH_BINARY_INV | cv::THRESH_OTSU);
+
+    // Process EACH frozen shape
+    for (const auto& frozen : frozenShapes) {
+        DetectedShape result;
+
+        // Use the frozen type and contour
+        result.type = frozen.type;
+        result.contour = frozen.contour;
+        result.boundingBox = cv::boundingRect(frozen.contour);
+        result.smoothness = 0.0; // Not applicable in analysis mode
+
+        // ROI Optimization: Extract the region of interest
+        // This prevents ink from neighboring shapes from being counted as spills
+        cv::Rect safeROI = frozen.boundingBox;
+
+        // Ensure ROI is within frame bounds
+        safeROI.x = std::max(0, safeROI.x);
+        safeROI.y = std::max(0, safeROI.y);
+        safeROI.width = std::min(warpedFrame.cols - safeROI.x, safeROI.width);
+        safeROI.height = std::min(warpedFrame.rows - safeROI.y, safeROI.height);
+
+        // Extract ROIs for this shape
+        cv::Mat roiInkMask = currentInkMask(safeROI);
+        cv::Mat roiInnerFillMask = frozen.innerFillMask(safeROI);
+        cv::Mat roiSafeSpillMask = frozen.safeSpillMask(safeROI);
+
+        // Calculate Filling: How much of the inner area is filled?
+        cv::Mat filledPixels;
+        cv::bitwise_and(roiInkMask, roiInnerFillMask, filledPixels);
+        double filledCount = cv::countNonZero(filledPixels);
+        result.fillingRatio = filledCount / frozen.innerArea;
+
+        // Calculate Spill: How much ink is outside the safe zone?
+        // Strictly penalize any ink beyond the TIGHT (k=2) dilated boundary
+        cv::Mat spillPixels;
+        cv::subtract(roiInkMask, roiSafeSpillMask, spillPixels);
+        double spillCount = cv::countNonZero(spillPixels);
+        result.spillRatio = spillCount / frozen.innerArea;
+
+        // Clamp values to [0, 1] range for filling (spill can exceed 1.0)
+        result.fillingRatio = std::min(1.0, std::max(0.0, result.fillingRatio));
+
+        results.push_back(result);
+    }
+
+    return results;
+}
+
+void ShapeClassifier::reset() {
+    // Clear all frozen shapes
+    frozenShapes.clear();
+
+    // Deactivate analysis mode
+    isAnalysisMode_ = false;
+
+    std::cout << "Baseline reset. Returning to scanning mode." << std::endl;
 }
