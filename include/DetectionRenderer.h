@@ -25,5 +25,5 @@ public:
 
 private:
     std::string formatShapeLabel(const DetectedShape &shape, int precision = 2) const;
-    std::string formatFillingLabel(const FillingStats &stats, int precision = 0) const;
+    std::string formatFillingLabel(const FillingStats &stats, int precision = 2) const;
 };

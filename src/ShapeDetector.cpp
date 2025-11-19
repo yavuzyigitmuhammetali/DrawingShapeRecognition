@@ -141,14 +141,8 @@ std::vector<FillingStats> ShapeDetector::analyzeFillProgress(const cv::Mat &warp
         return results;
     }
 
-    // Extract current ink from the warped image
+    // Extract current ink from the warped image (RAW - no dilation)
     cv::Mat currentInkMask = extractInkMask(warped);
-
-    // Create slightly dilated ink mask for fill calculation to compensate for edge erosion
-    // This allows achieving 100% fill instead of capping at ~95%
-    cv::Mat slightDilatedInk;
-    cv::Mat dilationKernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
-    cv::dilate(currentInkMask, slightDilatedInk, dilationKernel, cv::Point(-1, -1), 1);
 
     // Analyze each reference shape
     for (const auto &refShape : referenceShapes) {
@@ -156,17 +150,31 @@ std::vector<FillingStats> ShapeDetector::analyzeFillProgress(const cv::Mat &warp
         stats.boundingBox = refShape.boundingBox;
         stats.shapeType = refShape.originalType;
 
-        // Calculate fill percentage (intersection) using dilated ink for better edge coverage
+        // Create "Core Target" by eroding the reference mask
+        // MAXIMUM SENSITIVITY: Only 1 iteration - user must color very close to edges
+        cv::Mat coreTargetMask;
+        cv::Mat erosionKernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
+        cv::erode(refShape.mask, coreTargetMask, erosionKernel, cv::Point(-1, -1), 1);
+
+        // Calculate fill percentage against the CORE target (not full mask)
+        // This allows 100% achievement while strictly detecting real gaps
         cv::Mat intersectionMask;
-        cv::bitwise_and(refShape.mask, slightDilatedInk, intersectionMask);
+        cv::bitwise_and(coreTargetMask, currentInkMask, intersectionMask);
         int filledPixels = cv::countNonZero(intersectionMask);
-        stats.fillPercentage = (static_cast<double>(filledPixels) / refShape.totalArea) * 100.0;
+        int coreTargetArea = cv::countNonZero(coreTargetMask);
+
+        // Avoid division by zero for very small shapes
+        if (coreTargetArea > 0) {
+            stats.fillPercentage = (static_cast<double>(filledPixels) / coreTargetArea) * 100.0;
+        } else {
+            stats.fillPercentage = 0.0;
+        }
         stats.filledMask = intersectionMask;
 
         // Calculate overflow (pixels outside tolerance zone)
         // Use ORIGINAL currentInkMask (not dilated) for strict overflow detection
         cv::Mat toleranceZone;
-        int dilationSize = 2;  // ~2 pixels (~0.4mm) - Ultra strict
+        int dilationSize = 1;  // ~1 pixel (~0.2mm) - ZERO TOLERANCE mode
         cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE,
                                                     cv::Size(2 * dilationSize + 1, 2 * dilationSize + 1),
                                                     cv::Point(dilationSize, dilationSize));
@@ -236,11 +244,7 @@ cv::Mat ShapeDetector::extractInkMask(const cv::Mat &warped) const {
     cv::Mat combinedMask;
     cv::bitwise_or(mask1, mask2, combinedMask);
 
-    // Step 5: Morphological Closing - Connect gaps between strokes
-    // This makes the fill calculation more stable and forgiving
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
-    cv::Mat finalMask;
-    cv::morphologyEx(combinedMask, finalMask, cv::MORPH_CLOSE, kernel);
-
-    return finalMask;
+    // Return combined mask directly - prioritize raw precision over gap filling
+    // This preserves fine details and prevents merging of parallel strokes
+    return combinedMask;
 }
