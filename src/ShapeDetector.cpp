@@ -54,48 +54,66 @@ void ShapeDetector::handleKeyPress(char key) {
 cv::Mat ShapeDetector::processFrame(const cv::Mat &frame) {
     cv::Mat outputFrame = frame.clone();
 
-    // Detect ArUco markers
+    // 1. ARUCO TESPİTİ VE ÇİZİMİ
     std::vector<cv::Point2f> corners = arucoDetector.detectAndGetCorners(frame);
     arucoDetector.drawMarkers(outputFrame);
 
-    if (corners.empty()) {
-        return outputFrame;
-    }
+    if (!corners.empty()) {
+        cv::Mat warped = arucoPerspectiveTransformer.warpImage(frame, corners);
+        
+        if (!warped.empty()) {
+            std::vector<DetectedShape> allShapes;
 
-    // Warp image to top-down view
-    cv::Mat warped = arucoPerspectiveTransformer.warpImage(frame, corners);
-    if (warped.empty()) {
-        return outputFrame;
-    }
+            if (currentMode == DetectionMode::DRAWING) {
+                allShapes = shapeClassifier.findShapes(warped);
+                detectionRenderer.drawDetections(warped, allShapes);
 
-    // Process based on current mode
-    std::vector<DetectedShape> allShapes;
+                char key = static_cast<char>(cv::waitKey(1) & 0xFF);
+                if (key == 'f' || key == 'F') {
+                    captureReferenceShapes(allShapes, warped.size());
+                }
+            } else {
+                auto fillingStats = fillingAnalyzer.analyze(warped, referenceShapes);
+                detectionRenderer.drawFillingMode(warped, referenceShapes, fillingStats);
+            }
 
-    if (currentMode == DetectionMode::DRAWING) {
-        allShapes = shapeClassifier.findShapes(warped);
-        detectionRenderer.drawDetections(warped, allShapes);
+            cv::imshow(warpedWindowName, warped);
+            videoRecorder.update(!warped.empty(), warped);
 
-        // Check for mode transition
-        char key = static_cast<char>(cv::waitKey(1) & 0xFF);
-        if (key == 'f' || key == 'F') {
-            captureReferenceShapes(allShapes, warped.size());
-        }
-    } else {
-        // FILLING mode
-        auto fillingStats = fillingAnalyzer.analyze(warped, referenceShapes);
-        detectionRenderer.drawFillingMode(warped, referenceShapes, fillingStats);
-    }
-
-    cv::imshow(warpedWindowName, warped);
-
-    // Video recording
-    videoRecorder.update(!warped.empty(), warped);
-
-    if (videoRecorder.isRecording() && currentMode == DetectionMode::DRAWING) {
-        for (const auto &shape : allShapes) {
-            resultWriter.addShape(shape);
+            if (videoRecorder.isRecording() && currentMode == DetectionMode::DRAWING) {
+                for (const auto &shape : allShapes) {
+                    resultWriter.addShape(shape);
+                }
+            }
         }
     }
+
+    // 2. GÖRSEL İYİLEŞTİRME: CANLI BİLGİ PANELİ (HUD)
+    cv::Mat overlay = outputFrame.clone();
+    
+    // Alt tarafa siyah şerit
+    cv::rectangle(overlay, cv::Point(0, outputFrame.rows - 40),
+                  cv::Point(outputFrame.cols, outputFrame.rows),
+                  cv::Scalar(0, 0, 0), -1);
+    
+    // Yarı saydamlık uygula
+    cv::addWeighted(overlay, 0.6, outputFrame, 0.4, 0, outputFrame);
+
+    // Mod Bilgisi (Sol Alt)
+    std::string modeText = (currentMode == DetectionMode::DRAWING) ? "MODE: DRAWING" : "MODE: FILLING";
+    cv::Scalar modeColor = (currentMode == DetectionMode::DRAWING) ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 165, 255);
+
+    cv::putText(outputFrame, modeText, cv::Point(20, outputFrame.rows - 15),
+                cv::FONT_HERSHEY_SIMPLEX, 0.6, modeColor, 2);
+
+    // Tuş Kısayolları (Sağ Alt)
+    std::string controls = "[F] Fill  [R] Reset  [ESC] Exit";
+    int baseline = 0;
+    cv::Size textSize = cv::getTextSize(controls, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
+    
+    cv::putText(outputFrame, controls, 
+                cv::Point(outputFrame.cols - textSize.width - 20, outputFrame.rows - 15),
+                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
 
     return outputFrame;
 }
@@ -119,7 +137,6 @@ void ShapeDetector::captureReferenceShapes(
         refShape.boundingBox = shape.boundingBox;
         refShape.originalType = shape.type;
 
-        // Create filled mask
         refShape.mask = cv::Mat::zeros(imageSize, CV_8UC1);
         std::vector<std::vector<cv::Point>> contours = {shape.contour};
         cv::drawContours(refShape.mask, contours, 0, cv::Scalar(255), cv::FILLED);
