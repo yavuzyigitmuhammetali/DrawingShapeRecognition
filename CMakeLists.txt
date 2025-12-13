@@ -38,10 +38,17 @@ include_directories(
         ${OpenCV_INCLUDE_DIRS}
 )
 
-# Source files (will be populated as we create classes)
+# Source files
 set(SOURCES
         src/main.cpp
         src/ShapeDetector.cpp
+        src/ArucoDetector.cpp
+        src/ArucoPerspectiveTransformer.cpp
+        src/ShapeClassifier.cpp
+        src/DetectionRenderer.cpp
+        src/FillingAnalyzer.cpp
+        src/ResultWriter.cpp
+        src/VideoRecorder.cpp
 )
 
 # Main executable

@@ -1,15 +1,44 @@
 #pragma once
 
+#include "ArucoDetector.h"
+#include "ArucoPerspectiveTransformer.h"
+#include "DetectionRenderer.h"
+#include "FillingAnalyzer.h"
+#include "ResultWriter.h"
+#include "ShapeClassifier.h"
+#include "VideoRecorder.h"
+
 #include <opencv2/opencv.hpp>
-#include <map>
 #include <string>
 #include <vector>
 
-struct DetectedShape {
-    std::string type{"Unknown"};
-    double smoothness{0.0};
-    cv::Rect boundingBox;
-    std::vector<cv::Point> contour;
+// Detection mode enumeration
+enum class DetectionMode {
+    DRAWING,  // Default mode: detect and classify shapes
+    FILLING   // Filling mode: analyze how well shapes are being filled
+};
+
+// Reference shape structure for FILLING mode
+struct ReferenceShape {
+    std::vector<cv::Point> contour;      // Original shape contour
+    cv::Mat mask;                         // Binary mask (filled white polygon on black)
+    int totalArea;                        // Total pixel area of the shape
+    cv::Rect boundingBox;                 // Bounding box (ROI)
+    std::string originalType;             // Original shape type (Triangle, Circle, etc.)
+
+    ReferenceShape() : totalArea(0) {}
+};
+
+// Filling statistics for a single shape
+struct FillingStats {
+    double fillPercentage;                // Percentage of shape filled (0-100)
+    double overflowScore;                 // Overflow penalty (0-100+)
+    cv::Mat filledMask;                   // Mask of filled pixels
+    cv::Mat overflowMask;                 // Mask of overflow pixels
+    cv::Rect boundingBox;                 // Bounding box for rendering
+    std::string shapeType;                // Original shape type
+
+    FillingStats() : fillPercentage(0.0), overflowScore(0.0) {}
 };
 
 class ShapeDetector {
@@ -22,31 +51,23 @@ public:
 
 private:
     cv::Mat processFrame(const cv::Mat &frame);
-
-    cv::Mat preProcessImage(const cv::Mat &frame);
-
-    std::vector<cv::Point> getLargestContour(const cv::Mat &processedImage,
-                                             cv::Size originalFrameSize);
-
-    std::vector<cv::Point> reOrderPoints(const std::vector<cv::Point> &points);
-
-    cv::Mat warpImage(const cv::Mat &frame, const std::vector<cv::Point> &points);
-
-    std::vector<DetectedShape> findShapes(const cv::Mat &warpedImage);
-
-    void drawDetections(cv::Mat &image, const std::vector<DetectedShape> &shapes);
-
-    void saveDetectionsToFile(const std::vector<DetectedShape> &shapes);
-
-    void annotateSummary(cv::Mat &image, const std::vector<DetectedShape> &shapes);
-
-    std::string formatShapeLabel(const DetectedShape &shape, int precision = 2) const;
-
-    std::map<std::string, int> countKnownShapes(const std::vector<DetectedShape> &shapes,
-                                                int &unknownCount) const;
+    void captureReferenceShapes(const std::vector<DetectedShape> &shapes, const cv::Size &imageSize);
+    void resetToDrawingMode();
+    void handleKeyPress(char key);
 
     cv::VideoCapture cap;
-    std::string windowName{"Shape Detector - Original"};
+    std::string windowName{"Shape Detector - ArUco Tracking"};
     std::string warpedWindowName{"Top-Down View"};
-    std::string outputFileName{"detected_shapes.txt"};
+
+    ArucoDetector arucoDetector;
+    ArucoPerspectiveTransformer arucoPerspectiveTransformer;
+    ShapeClassifier shapeClassifier;
+    DetectionRenderer detectionRenderer;
+    FillingAnalyzer fillingAnalyzer;
+    ResultWriter resultWriter;
+    VideoRecorder videoRecorder;
+
+    // State machine variables
+    DetectionMode currentMode{DetectionMode::DRAWING};
+    std::vector<ReferenceShape> referenceShapes;
 };
